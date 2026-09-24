@@ -11,11 +11,21 @@ export interface CircularVisualizerProps {
 export const CircularVisualizer = ({
   analyserData = null,
   baseRadius = 120,
-  barCount = 72,
+  barCount = 84,
   state = 'idle'
 }: CircularVisualizerProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number | undefined>(undefined);
+  const dataRef = useRef<Uint8Array | null>(analyserData);
+  const stateRef = useRef<string>(state);
+
+  useEffect(() => {
+    dataRef.current = analyserData;
+  }, [analyserData]);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -26,7 +36,7 @@ export const CircularVisualizer = ({
 
     // Handle high DPI displays
     const dpr = window.devicePixelRatio || 1;
-    const size = baseRadius * 3 + 100; // rough bound for visualizer size
+    const size = baseRadius * 3 + 120;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
     ctx.scale(dpr, dpr);
@@ -35,31 +45,53 @@ export const CircularVisualizer = ({
 
     const cx = size / 2;
     const cy = size / 2;
-    const maxHeight = 100;
+    const maxHeight = 85;
+
+    let tick = 0;
 
     const draw = () => {
+      tick++;
       ctx.clearRect(0, 0, size, size);
       ctx.globalCompositeOperation = 'lighter';
 
-      const dataArray = analyserData || new Uint8Array(barCount);
-      const isIdle = !analyserData || (state === 'idle' || state === 'thinking');
+      const dataArray = dataRef.current;
+      const currentState = stateRef.current;
+      const isIdle = !dataArray || currentState === 'idle';
+      const isThinking = currentState === 'thinking';
+      const isSpeaking = currentState === 'speaking';
+      const isListening = currentState === 'listening';
 
+      // 1. Draw glowing inner energy baseline circle
+      ctx.beginPath();
+      ctx.arc(cx, cy, baseRadius - 2, 0, Math.PI * 2);
+      ctx.strokeStyle = isThinking 
+        ? 'rgba(255, 145, 0, 0.4)' 
+        : isSpeaking 
+        ? 'rgba(0, 240, 255, 0.6)' 
+        : 'rgba(0, 180, 255, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // 2. Frequency Audio Spikes with multi-octave smoothing
       for (let i = 0; i < barCount; i++) {
-        const angle = (i / barCount) * 2 * Math.PI - Math.PI / 2; // start at top
+        const angle = (i / barCount) * 2 * Math.PI - Math.PI / 2;
         
         let amplitude = 0;
-        if (isIdle) {
-          // Ambient idle movement
-          amplitude = (Math.sin(Date.now() * 0.002 + i) * 0.5 + 0.5) * 0.1;
+        if (dataArray && dataArray.length > 0 && (isSpeaking || isListening)) {
+          const idx = Math.floor((i / barCount) * Math.min(dataArray.length, 64));
+          amplitude = (dataArray[idx] || 0) / 255.0;
+        } else if (isThinking) {
+          // Dynamic dual-speed plasma ripple during thinking
+          amplitude = (Math.sin(tick * 0.08 + i * 0.3) * 0.5 + 0.5) * 0.35 +
+                      (Math.cos(tick * 0.04 - i * 0.2) * 0.5 + 0.5) * 0.25;
         } else {
-          // Map to frequency bins if available (simple linear mapping)
-          const dataIndex = Math.floor((i / barCount) * (dataArray.length || barCount));
-          amplitude = (dataArray[dataIndex] || 0) / 255.0;
+          // Subtle organic breathing wave in idle standby
+          amplitude = (Math.sin(tick * 0.03 + i * 0.15) * 0.5 + 0.5) * 0.08;
         }
 
         const barHeight = amplitude * maxHeight;
         const innerRadius = baseRadius;
-        const outerRadius = baseRadius + barHeight + (isIdle ? 2 : 5);
+        const outerRadius = baseRadius + barHeight + (isIdle ? 3 : 6);
 
         const x1 = cx + Math.cos(angle) * innerRadius;
         const y1 = cy + Math.sin(angle) * innerRadius;
@@ -70,16 +102,40 @@ export const CircularVisualizer = ({
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
 
-        const intensity = isIdle ? 0.2 : 0.3 + amplitude * 0.7;
-        const color = state === 'thinking' ? `rgba(255, 145, 0, ${intensity})` : `rgba(0, 240, 255, ${intensity})`;
-        const shadowColor = state === 'thinking' ? '#ff9100' : '#00f0ff';
+        // Dynamic multi-tone gradient / color scheme
+        let color = 'rgba(0, 240, 255, 0.5)';
+        let shadowColor = '#00f0ff';
+        if (isThinking) {
+          color = `rgba(255, 160, 0, ${0.4 + amplitude * 0.6})`;
+          shadowColor = '#ff9100';
+        } else if (isSpeaking) {
+          // Electric cyan-white discharge on voice peaks
+          const alpha = Math.min(1, 0.5 + amplitude * 0.6);
+          color = amplitude > 0.6 ? `rgba(224, 255, 255, ${alpha})` : `rgba(0, 240, 255, ${alpha})`;
+          shadowColor = amplitude > 0.6 ? '#ffffff' : '#00f0ff';
+        } else if (isListening) {
+          color = `rgba(0, 200, 255, ${0.35 + amplitude * 0.65})`;
+          shadowColor = '#00c8ff';
+        }
 
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = isSpeaking ? 3.5 : 2.5;
         ctx.lineCap = 'round';
-        ctx.shadowBlur = 6;
+        ctx.shadowBlur = isSpeaking ? 10 : 5;
         ctx.shadowColor = shadowColor;
         ctx.stroke();
+
+        // 3. Orbiting tip particle for high amplitude spikes
+        if (amplitude > 0.45) {
+          const tipX = cx + Math.cos(angle) * (outerRadius + 4);
+          const tipY = cy + Math.sin(angle) * (outerRadius + 4);
+          ctx.beginPath();
+          ctx.arc(tipX, tipY, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = '#00f0ff';
+          ctx.fill();
+        }
       }
 
       requestRef.current = requestAnimationFrame(draw);
@@ -92,7 +148,7 @@ export const CircularVisualizer = ({
         cancelAnimationFrame(requestRef.current);
       }
     };
-  }, [analyserData, baseRadius, barCount, state]);
+  }, [baseRadius, barCount]);
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
@@ -100,5 +156,3 @@ export const CircularVisualizer = ({
     </div>
   );
 };
-
-export default CircularVisualizer;

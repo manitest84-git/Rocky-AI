@@ -20,8 +20,7 @@ export function useLiveKit() {
       const tk = await getToken(targetRoom, targetUser);
       setToken(tk);
       setRoomName(targetRoom);
-      setConnectionState(ConnectionState.Connected);
-      
+      // Room state stays Connecting until LiveKitRoom onConnected fires
       return { token: tk, roomName: targetRoom };
     } catch (err: any) {
       setError(err);
@@ -38,6 +37,7 @@ export function useLiveKit() {
 
   return {
     connectionState,
+    setConnectionState,
     token,
     roomName,
     serverUrl: getLiveKitUrl(),

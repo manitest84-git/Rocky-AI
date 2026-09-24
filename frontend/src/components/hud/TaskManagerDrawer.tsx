@@ -7,9 +7,10 @@ import { CheckSquare, Square, Trash2, Plus, AlertCircle, FileText, Calendar, Tag
 interface TaskManagerDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  refreshTrigger?: number;
 }
 
-export const TaskManagerDrawer: React.FC<TaskManagerDrawerProps> = ({ isOpen, onClose }) => {
+export const TaskManagerDrawer: React.FC<TaskManagerDrawerProps> = ({ isOpen, onClose, refreshTrigger }) => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'notes'>('tasks');
   const [error, setError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -30,7 +31,7 @@ export const TaskManagerDrawer: React.FC<TaskManagerDrawerProps> = ({ isOpen, on
     if (isOpen) {
       loadData();
     }
-  }, [isOpen]);
+  }, [isOpen, refreshTrigger]);
 
   const loadData = async () => {
     setLoading(true);

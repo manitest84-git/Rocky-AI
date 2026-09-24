@@ -27,7 +27,7 @@ class MemoryManager:
                 "llm": {
                     "provider": "ollama",
                     "config": {
-                        "model": os.getenv("OLLAMA_MODEL", "jarvis"),
+                        "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
                         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
                     }
                 }

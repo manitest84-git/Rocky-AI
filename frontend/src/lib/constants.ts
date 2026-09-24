@@ -19,7 +19,8 @@ export const PALETTE = {
 export const getApiUrl = (): string => {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-    return `http://${host}:8333`;
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    return `${protocol}//${host}:8333`;
   }
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8333';
 };
@@ -27,7 +28,8 @@ export const getApiUrl = (): string => {
 export const getLiveKitUrl = (): string => {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-    return `ws://${host}:7880`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${host}:7880`;
   }
   return process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
 };

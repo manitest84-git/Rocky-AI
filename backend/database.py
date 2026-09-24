@@ -339,16 +339,18 @@ async def save_conversation_turn(user_id: int, role: str, content: str):
             user_id, role, content
         )
 
-async def get_user_conversation_history(user_id: int, limit: int = 10, offset: int = 0) -> Dict[str, Any]:
+async def get_user_conversation_history(user_id: int, limit: int = 10, offset: int = 0, today_only: bool = False) -> Dict[str, Any]:
     p = await get_pg_pool()
     async with p.acquire() as conn:
-        total_count = await conn.fetchval("SELECT COUNT(*) FROM conversations WHERE user_id = $1;", user_id)
+        date_clause = "AND timestamp::date = CURRENT_DATE" if today_only else ""
+        total_count = await conn.fetchval(f"SELECT COUNT(*) FROM conversations WHERE user_id = $1 {date_clause};", user_id)
+        all_time_count = await conn.fetchval("SELECT COUNT(*) FROM conversations WHERE user_id = $1;", user_id)
         rows = await conn.fetch(
-            """
+            f"""
             SELECT role, content, timestamp FROM (
                 SELECT role, content, timestamp, id 
                 FROM conversations 
-                WHERE user_id = $1 
+                WHERE user_id = $1 {date_clause}
                 ORDER BY id DESC 
                 LIMIT $2 OFFSET $3
             ) sub ORDER BY id ASC;
@@ -360,6 +362,8 @@ async def get_user_conversation_history(user_id: int, limit: int = 10, offset: i
         return {
             "messages": messages,
             "total_count": total_count,
+            "all_time_count": all_time_count,
+            "today_only": today_only,
             "has_more": has_more,
             "offset": offset,
             "limit": limit
@@ -406,13 +410,14 @@ async def delete_vault_item(item_id: int, user_id: int, is_admin: bool = False) 
 async def create_reminder(user_id: int, title: str, scheduled_at: str, description: str = "", trigger_type: str = "reminder") -> Dict[str, Any]:
     p = await get_pg_pool()
     async with p.acquire() as conn:
+        dt = _parse_dt(scheduled_at) or datetime.now()
         row = await conn.fetchrow(
             """
             INSERT INTO reminders_triggers (user_id, title, description, trigger_type, scheduled_at)
-            VALUES ($1, $2, $3, $4, $5::timestamp with time zone)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id, user_id, title, description, trigger_type, scheduled_at, is_completed;
             """,
-            user_id, title, description, trigger_type, scheduled_at
+            user_id, title, description, trigger_type, dt
         )
         return dict(row)
 

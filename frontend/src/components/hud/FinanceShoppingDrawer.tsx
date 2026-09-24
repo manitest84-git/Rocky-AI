@@ -12,10 +12,17 @@ import { DollarSign, CreditCard, ShoppingBag, Plus, Trash2, CheckSquare, Square,
 interface FinanceShoppingDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'expenses' | 'subscriptions' | 'shopping';
+  refreshTrigger?: number;
 }
 
-export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'expenses' | 'subscriptions' | 'shopping'>('expenses');
+export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({ 
+  isOpen, 
+  onClose,
+  initialTab = 'expenses',
+  refreshTrigger 
+}) => {
+  const [activeTab, setActiveTab] = useState<'expenses' | 'subscriptions' | 'shopping'>(initialTab);
   const [error, setError] = useState<string | null>(null);
   
   // Data states
@@ -46,10 +53,16 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({ is
   const [itemWarranty, setItemWarranty] = useState('');
 
   useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab, refreshTrigger]);
+
+  useEffect(() => {
     if (isOpen) {
       loadData();
     }
-  }, [isOpen]);
+  }, [isOpen, refreshTrigger]);
 
   const loadData = async () => {
     setLoading(true);

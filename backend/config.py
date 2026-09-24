@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     livekit_api_secret: str = Field(default="", env="LIVEKIT_API_SECRET")
     
     ollama_base_url: str = Field(default="http://localhost:11434", env="OLLAMA_BASE_URL")
-    ollama_model: str = Field(default="jarvis", env="OLLAMA_MODEL")
+    ollama_model: str = Field(default="qwen3.5b", env="OLLAMA_MODEL")
     
     backend_port: int = Field(default=8333, env="BACKEND_PORT")
     

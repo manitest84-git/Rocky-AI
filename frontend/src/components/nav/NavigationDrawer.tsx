@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Menu, X, Users, Shield, Cpu, Mic, MessageSquare, Database, LogOut, Activity, Home, Sliders, CheckSquare, Calendar, DollarSign, Lock } from 'lucide-react';
+import { Menu, X, Users, Shield, Cpu, Mic, MessageSquare, Database, LogOut, Activity, Home, Sliders, CheckSquare, Calendar, DollarSign, Lock, Layers, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 interface NavigationDrawerProps {
@@ -11,9 +11,20 @@ interface NavigationDrawerProps {
   onOpenFinance?: () => void;
   onOpenVault?: () => void;
   onOpenSmartHome?: () => void;
+  onOpenMemoryMap?: () => void;
+  onOpenUserProfile?: () => void;
 }
 
-export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({ onOpenAdminPanel, onOpenTaskManager, onOpenCalendar, onOpenFinance, onOpenVault, onOpenSmartHome }) => {
+export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({ 
+  onOpenAdminPanel, 
+  onOpenTaskManager, 
+  onOpenCalendar, 
+  onOpenFinance, 
+  onOpenVault, 
+  onOpenSmartHome,
+  onOpenMemoryMap,
+  onOpenUserProfile,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout, isAdmin } = useAuth();
 
@@ -138,6 +149,30 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({ onOpenAdminP
                 >
                   <Home size={16} className="text-cyan-400 group-hover:scale-110 transition-transform" />
                   <span>Proactive & Smart Home</span>
+                </button>
+
+                {/* System Memory Map */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (onOpenMemoryMap) onOpenMemoryMap();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-md bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-400/60 hover:border-cyan-300 text-cyan-100 flex items-center gap-3 transition-all text-xs font-orbitron group mb-2 shadow-[0_0_15px_rgba(0,240,255,0.25)]"
+                >
+                  <Layers size={16} className="text-cyan-300 animate-pulse group-hover:scale-110 transition-transform" />
+                  <span>System Memory Map</span>
+                </button>
+
+                {/* Operator Profile & Preferences */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (onOpenUserProfile) onOpenUserProfile();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-md bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 hover:border-cyan-400 text-cyan-200 flex items-center gap-3 transition-all text-xs font-orbitron group mb-2 shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+                >
+                  <Sliders size={16} className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                  <span>Profile & Auto-PTT Timeout</span>
                 </button>
 
                 {/* Admin-only option */}

@@ -132,7 +132,8 @@ export async function streamChat(
   message: string,
   history: ChatMessage[],
   onToken: (token: string) => void,
-  onDone: () => void
+  onDone: () => void,
+  onAction?: (action: any) => void
 ): Promise<void> {
   try {
     const response = await fetch(`${getApiUrl()}/api/chat`, {
@@ -179,6 +180,9 @@ export async function streamChat(
                 if (parsed.content) {
                   onToken(parsed.content);
                 }
+                if (parsed.ui_action && onAction) {
+                  onAction(parsed.ui_action);
+                }
               } catch (e) {
                 // Ignore partial JSON
               }
@@ -199,14 +203,16 @@ export async function streamChat(
 export interface PaginatedHistoryResponse {
   messages: ChatMessage[];
   total_count: number;
+  all_time_count?: number;
+  today_only?: boolean;
   has_more: boolean;
   offset: number;
   limit: number;
 }
 
-export async function getUserHistory(limit: number = 10, offset: number = 0): Promise<PaginatedHistoryResponse> {
+export async function getUserHistory(limit: number = 10, offset: number = 0, todayOnly: boolean = false): Promise<PaginatedHistoryResponse> {
   try {
-    const response = await fetch(`${getApiUrl()}/api/history?limit=${limit}&offset=${offset}`, {
+    const response = await fetch(`${getApiUrl()}/api/history?limit=${limit}&offset=${offset}&today_only=${todayOnly}`, {
       headers: { ...getAuthHeader() }
     });
     if (!response.ok) return { messages: [], total_count: 0, has_more: false, offset, limit };
@@ -666,5 +672,83 @@ export async function triggerAutomationRoutine(routineId: number): Promise<{ sta
   if (!response.ok) throw new Error('Failed to execute automation routine');
   return response.json();
 }
+
+// ---------------------------------------------------------------------------
+// HitL Safeguards & Ambient Dictation STT Client Helpers
+// ---------------------------------------------------------------------------
+
+export interface HitLActionRecord {
+  action_id: string;
+  username: string;
+  category: 'file_deletion' | 'terminal_write' | 'email_sending' | 'system_modification';
+  title: string;
+  command: string;
+  target: string;
+  details?: Record<string, any>;
+  status: 'pending' | 'confirmed' | 'rejected' | 'expired';
+  created_at: string;
+  expires_at: string;
+  result?: any;
+}
+
+/**
+ * Fetch pending HitL authorization actions
+ */
+export async function getPendingHitLActions(): Promise<HitLActionRecord[]> {
+  const response = await fetch(`${getApiUrl()}/api/assistant/hitl/pending`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to fetch pending HitL actions');
+  const data = await response.json();
+  return data.pending || [];
+}
+
+/**
+ * Authorize & execute a staged destructive action
+ */
+export async function confirmHitLAction(actionId: string, username: string = 'admin'): Promise<any> {
+  const response = await fetch(`${getApiUrl()}/api/assistant/hitl/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ action_id: actionId, username })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to authorize action' }));
+    throw new Error(err.detail || 'Authorization failed');
+  }
+  return response.json();
+}
+
+/**
+ * Abort a staged destructive action
+ */
+export async function rejectHitLAction(actionId: string, username: string = 'admin'): Promise<any> {
+  const response = await fetch(`${getApiUrl()}/api/assistant/hitl/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ action_id: actionId, username })
+  });
+  if (!response.ok) throw new Error('Failed to reject action');
+  return response.json();
+}
+
+/**
+ * Ambient Dictation: Send raw audio blob to fast STT micro-service
+ */
+export async function transcribeAudioStt(audioBlob: Blob): Promise<{ transcript: string; latency_ms: number; status: string }> {
+  const response = await fetch(`${getApiUrl()}/api/voice/stt`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': audioBlob.type || 'audio/webm',
+      ...getAuthHeader(),
+    },
+    body: audioBlob,
+  });
+  if (!response.ok) {
+    throw new Error(`STT failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 
 

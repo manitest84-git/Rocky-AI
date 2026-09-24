@@ -1,0 +1,10 @@
+# Pyrefly linter configuration for Rocky-AI
+# Dependencies run inside Docker containers, so ignore missing-import on host
+
+[pyrefly]
+disabled_errors = ["missing-import"]
+ignore_missing_imports = true
+
+[tool.pyrefly]
+disabled_errors = ["missing-import"]
+ignore_missing_imports = true

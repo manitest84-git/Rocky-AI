@@ -1,4 +1,4 @@
-version: '3.8'
+name: rocky
 
 services:
   redis:
@@ -14,10 +14,15 @@ services:
 
   livekit-server:
     image: livekit/livekit-server:latest
-    network_mode: "host"
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50050:50000-50050/udp"
+    environment:
+      - NODE_IP=${LIVEKIT_NODE_IP:-192.168.0.100}
     volumes:
       - ./livekit.yaml:/livekit.yaml
-    command: --config /livekit.yaml
+    command: --config /livekit.yaml --node-ip ${LIVEKIT_NODE_IP:-192.168.0.100}
     depends_on:
       redis:
         condition: service_healthy
@@ -59,7 +64,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./backend/data:/app/data
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +80,11 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
-    network_mode: "host"
+    volumes:
+      - ./agent:/app
+    environment:
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
       - ollama
       - livekit-server
