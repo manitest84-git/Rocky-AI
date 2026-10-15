@@ -1,4 +1,5 @@
 import { API_URL, getApiUrl } from './constants';
+export { API_URL, getApiUrl };
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -326,6 +327,8 @@ export interface CalendarEvent {
   attendees?: string[];
   agenda?: string;
   action_items?: any[];
+  recurrence_rule?: string;
+  category?: string;
   created_at: string;
 }
 
@@ -348,6 +351,8 @@ export async function createCalendarEvent(event: {
   location?: string;
   attendees?: string[];
   agenda?: string;
+  recurrence_rule?: string;
+  category?: string;
 }): Promise<{ event: CalendarEvent; conflicts: any[] }> {
   const response = await fetch(`${getApiUrl()}/api/calendar`, {
     method: 'POST',
@@ -375,6 +380,60 @@ export async function generateMeetingAgenda(title: string, description?: string)
   if (!response.ok) throw new Error('Failed to generate agenda');
   const data = await response.json();
   return data.agenda;
+}
+
+// User Autonomous Memories & Preferences
+export interface UserMemory {
+  id: number;
+  fact: string;
+  category: string;
+  confidence: number;
+  source?: string;
+  created_at: string;
+}
+
+export async function getUserMemories(): Promise<UserMemory[]> {
+  const response = await fetch(`${getApiUrl()}/api/memory`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.memories || [];
+}
+
+export async function createUserMemory(fact: string, category: string = 'preference'): Promise<UserMemory> {
+  const response = await fetch(`${getApiUrl()}/api/memory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ fact, category })
+  });
+  if (!response.ok) throw new Error('Failed to record memory');
+  const data = await response.json();
+  return data.memory;
+}
+
+export async function deleteUserMemory(memoryId: number): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/api/memory/${memoryId}`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to delete memory');
+}
+
+export async function purgeUserMemories(): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/api/memory/purge`, {
+    method: 'POST',
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to purge memories');
+}
+
+export async function getDailyBriefing(username: string = 'admin'): Promise<any> {
+  const response = await fetch(`${getApiUrl()}/api/assistant/briefing?username=${encodeURIComponent(username)}`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to fetch morning briefing');
+  return response.json();
 }
 
 export interface FinancialTransaction {

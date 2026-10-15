@@ -25,6 +25,35 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
   const [activeTab, setActiveTab] = useState<'expenses' | 'subscriptions' | 'shopping'>(initialTab);
   const [error, setError] = useState<string | null>(null);
   
+  // Currency State with localStorage persistence
+  const [currency, setCurrency] = useState<'INR' | 'USD' | 'EUR' | 'GBP'>('INR');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rocky_currency') as any;
+      if (saved) setCurrency(saved);
+    }
+  }, []);
+
+  const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '£';
+
+  const handleCurrencyChange = (newCur: 'INR' | 'USD' | 'EUR' | 'GBP') => {
+    setCurrency(newCur);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rocky_currency', newCur);
+    }
+  };
+
+  // Category Monthly Budget Limits (₹ or normalized)
+  const categoryBudgets: Record<string, number> = {
+    'Food & Dining': currency === 'INR' ? 15000 : 200,
+    'Shopping': currency === 'INR' ? 10000 : 150,
+    'Housing & Bills': currency === 'INR' ? 25000 : 400,
+    'Transportation': currency === 'INR' ? 6000 : 90,
+    'Entertainment': currency === 'INR' ? 5000 : 70,
+    'General': currency === 'INR' ? 8000 : 100,
+  };
+  
   // Data states
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
@@ -215,16 +244,37 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
         
         {/* Header */}
         <div>
-          <div className="flex items-center justify-between border-b border-cyan-900/60 pb-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-cyan-900/60 pb-3 mb-4 gap-2">
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-cyan-400 animate-pulse" />
               <span className="font-orbitron font-bold text-cyan-100 tracking-wider text-sm">
                 FINANCE & SHOPPING MATRIX
               </span>
             </div>
-            <button onClick={onClose} aria-label="Close" className="p-1 rounded-md text-cyan-400 hover:text-cyan-100 hover:bg-cyan-950/60 transition-colors">
-              <X size={18} />
-            </button>
+            
+            <div className="flex items-center gap-2">
+              {/* Currency Selector Chips */}
+              <div className="flex items-center gap-1 bg-cyan-950/80 p-0.5 rounded-lg border border-cyan-800/60 font-orbitron text-[10px]">
+                {(['INR', 'USD', 'EUR', 'GBP'] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => handleCurrencyChange(c)}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      currency === c 
+                        ? 'bg-cyan-500/30 text-cyan-200 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.3)] font-bold' 
+                        : 'text-cyan-500 hover:text-cyan-300'
+                    }`}
+                  >
+                    {c === 'INR' ? '₹ INR' : c === 'USD' ? '$ USD' : c === 'EUR' ? '€ EUR' : '£ GBP'}
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={onClose} aria-label="Close" className="p-1 rounded-md text-cyan-400 hover:text-cyan-100 hover:bg-cyan-950/60 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Navigation Tabs */}
@@ -273,20 +323,74 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
                 <div className="grid grid-cols-3 gap-2 p-3 bg-cyan-950/40 border border-cyan-800/50 rounded-lg text-center font-orbitron">
                   <div>
                     <div className="text-[9px] text-cyan-500 uppercase">INCOME</div>
-                    <div className="text-xs font-bold text-emerald-400">₹{summary.total_income.toFixed(2)}</div>
+                    <div className="text-xs font-bold text-emerald-400">{currencySymbol}{summary.total_income.toFixed(2)}</div>
                   </div>
                   <div>
                     <div className="text-[9px] text-cyan-500 uppercase">EXPENSES</div>
-                    <div className="text-xs font-bold text-red-400">₹{summary.total_expense.toFixed(2)}</div>
+                    <div className="text-xs font-bold text-red-400">{currencySymbol}{summary.total_expense.toFixed(2)}</div>
                   </div>
                   <div>
                     <div className="text-[9px] text-cyan-500 uppercase">NET SAVINGS</div>
                     <div className={`text-xs font-bold ${summary.net_savings >= 0 ? 'text-cyan-300' : 'text-amber-400'}`}>
-                      ₹{summary.net_savings.toFixed(2)}
+                      {currencySymbol}{summary.net_savings.toFixed(2)}
                     </div>
                   </div>
                 </div>
               )}
+
+              {/* Category Budget Matrix & Proactive Alert Section */}
+              <div className="p-3 bg-cyan-950/30 border border-cyan-800/40 rounded-lg space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] text-cyan-400 uppercase font-orbitron font-bold tracking-wider flex items-center gap-1.5">
+                    <PieChart size={12} className="text-cyan-400" />
+                    <span>MONTHLY CATEGORY BUDGETS</span>
+                  </div>
+                  <span className="text-[10px] text-cyan-600 font-mono">AUTONOMOUS LIMITS</span>
+                </div>
+
+                <div className="space-y-2">
+                  {Object.entries(categoryBudgets).map(([cat, limit]) => {
+                    const spent = transactions
+                      .filter((t) => t.type === 'expense' && t.category === cat)
+                      .reduce((sum, t) => sum + t.amount, 0);
+                    const pct = Math.min(100, Math.round((spent / limit) * 100));
+                    const isExceeded = spent >= limit;
+                    const isWarning = pct >= 80;
+
+                    return (
+                      <div key={cat} className="space-y-1">
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-cyan-300 flex items-center gap-1">
+                            {cat}
+                            {isWarning && (
+                              <span className={`px-1 py-0.2 rounded text-[8px] font-orbitron ${
+                                isExceeded ? 'bg-red-950/80 border border-red-500/50 text-red-300 animate-pulse' : 'bg-amber-950/80 border border-amber-500/50 text-amber-300'
+                              }`}>
+                                {isExceeded ? 'CAP EXCEEDED' : '80% LIMIT'}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-cyan-400 font-orbitron">
+                            {currencySymbol}{spent.toFixed(0)} / {currencySymbol}{limit} ({pct}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-cyan-950 rounded-full overflow-hidden border border-cyan-900/60">
+                          <div 
+                            className={`h-full transition-all duration-300 ${
+                              isExceeded 
+                                ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]' 
+                                : isWarning 
+                                ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]' 
+                                : 'bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.4)]'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Add Transaction Form */}
               <form onSubmit={handleCreateTransaction} className="p-3 bg-cyan-950/30 border border-cyan-800/40 rounded-lg space-y-2">
@@ -306,7 +410,7 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
                     step="0.01"
                     autoComplete="off"
                     required
-                    placeholder="Amount (₹)..."
+                    placeholder={`Amount (${currencySymbol})...`}
                     value={txAmount}
                     onChange={(e) => setTxAmount(e.target.value)}
                     className="flex-1 bg-[#03152c] border border-cyan-800/60 rounded px-3 py-1.5 text-xs text-cyan-100 placeholder-cyan-600 focus:outline-none focus:border-cyan-400"
@@ -370,7 +474,7 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
                       </div>
                       <div className="flex items-center gap-3">
                         <span className={`text-xs font-orbitron font-bold ${tx.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {tx.type === 'income' ? '+' : '-'}₹{tx.amount.toFixed(2)}
+                          {tx.type === 'income' ? '+' : '-'}{currencySymbol}{tx.amount.toFixed(2)}
                         </span>
                         <button onClick={() => handleDeleteTransaction(tx.id)} aria-label="Delete transaction" className="text-cyan-700 hover:text-red-400 transition-colors p-1">
                           <Trash2 size={14} />
@@ -406,7 +510,7 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
                     step="0.01"
                     autoComplete="off"
                     required
-                    placeholder="Amount (₹)..."
+                    placeholder={`Amount (${currencySymbol})...`}
                     value={subAmount}
                     onChange={(e) => setSubAmount(e.target.value)}
                     className="flex-1 bg-[#03152c] border border-cyan-800/60 rounded px-3 py-1 text-xs text-cyan-100 placeholder-cyan-600 focus:outline-none"
@@ -445,7 +549,7 @@ export const FinanceShoppingDrawer: React.FC<FinanceShoppingDrawerProps> = ({
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-orbitron font-bold text-cyan-200">
-                          ₹{sub.amount.toFixed(2)}/{sub.billing_cycle}
+                          {currencySymbol}{sub.amount.toFixed(2)}/{sub.billing_cycle}
                         </span>
                         <button onClick={() => handleDeleteSubscription(sub.id)} aria-label="Delete subscription" className="text-cyan-700 hover:text-red-400 transition-colors p-1">
                           <Trash2 size={14} />

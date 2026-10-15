@@ -95,7 +95,7 @@ export const AmbientDictationBar: React.FC<AmbientDictationBarProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Floating Push-to-Talk HUD Trigger Button (Available for mouse/touch hold) */}
+      {/* Floating Push-to-Talk HUD Trigger Button (Desktop only with Ctrl+Space shortcut) */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -104,7 +104,7 @@ export const AmbientDictationBar: React.FC<AmbientDictationBarProps> = ({
         onTouchStart={onStartHold}
         onTouchEnd={onEndHold}
         title="Push-and-hold to dictate speech directly into the active text box (Ctrl+Space)"
-        className={`mt-2 mx-auto flex items-center gap-2 px-3 py-1.5 rounded-full border bg-[#020813]/80 backdrop-blur-md font-orbitron text-[10px] uppercase tracking-wider transition-all select-none ${
+        className={`mt-2 mx-auto hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border bg-[#020813]/80 backdrop-blur-md font-orbitron text-[10px] uppercase tracking-wider transition-all select-none ${
           isRecording
             ? 'border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(0,240,255,0.4)]'
             : 'border-cyan-500/40 text-cyan-500 hover:text-cyan-300 hover:border-cyan-400/80'

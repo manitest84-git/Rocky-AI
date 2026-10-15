@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 class KokoroTTS(tts.TTS):
     """
     LiveKit TTS Plugin wrapping Kokoro TTS with real-time sentence-chunked streaming.
+    Defaults to British J.A.R.V.I.S. voice ('bm_george') with seamless fallback
+    to Edge-TTS for Tamil/Hindi phrases.
     """
-    def __init__(self, voice='af_heart', speed=1.05, lang_code='a'):
+    def __init__(self, voice='bm_george', speed=1.0, lang_code=None):
         super().__init__(
             capabilities=tts.TTSCapabilities(streaming=False),
             sample_rate=24000,
@@ -22,21 +24,41 @@ class KokoroTTS(tts.TTS):
         )
         self.voice = voice
         self.speed = speed
+        if lang_code is None:
+            self._lang_code = 'b' if voice.startswith(('bm_', 'bf_')) else 'a'
+        else:
+            self._lang_code = lang_code
         self._pipeline = None
-        self._lang_code = lang_code
+        self._edge_fallback = None
     
     def _ensure_pipeline(self):
         if self._pipeline is None:
             from kokoro import KPipeline
             self._pipeline = KPipeline(lang_code=self._lang_code)
         return self._pipeline
+
+    def _ensure_edge_fallback(self):
+        if self._edge_fallback is None:
+            self._edge_fallback = EdgeTTS()
+        return self._edge_fallback
     
     def synthesize(self, text: str, *, conn_options=DEFAULT_API_CONNECT_OPTIONS, **kwargs) -> tts.ChunkedStream:
         return KokoroChunkedStream(tts=self, input_text=text, conn_options=conn_options)
 
 class KokoroChunkedStream(tts.ChunkedStream):
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        tts_instance = self._tts
+        import re
+        tts_instance: KokoroTTS = self._tts
+
+        # Kokoro is English/Latin-based. If Tamil or Hindi unicode is detected,
+        # route seamlessly to EdgeTTS (ta-IN-ValluvarNeural / hi-IN-MadhurNeural)
+        has_indic = bool(re.search(r'[\u0B80-\u0BFF\u0900-\u097F]', self._input_text))
+        if has_indic:
+            edge_engine = tts_instance._ensure_edge_fallback()
+            edge_stream = EdgeChunkedStream(tts=edge_engine, input_text=self._input_text, conn_options=self._conn_options)
+            await edge_stream._run(output_emitter)
+            return
+
         output_emitter.initialize(
             request_id=f"kokoro-{uuid.uuid4().hex[:8]}",
             sample_rate=24000,
@@ -200,3 +222,98 @@ class PiperChunkedStream(tts.ChunkedStream):
                 output_emitter.flush()
         except Exception as e:
             logger.error(f"PiperTTS synthesis error: {e}")
+
+class EdgeTTS(tts.TTS):
+    """
+    High-fidelity Neural Edge-TTS supporting English (India), Hindi, Tamil, and English (US).
+    Zero external API key requirements.
+    """
+    VOICE_MAP = {
+        'en-IN': 'en-IN-PrabhatNeural',
+        'en-IN-female': 'en-IN-NeerjaNeural',
+        'hi-IN': 'hi-IN-MadhurNeural',
+        'hi-IN-female': 'hi-IN-SwaraNeural',
+        'ta-IN': 'ta-IN-ValluvarNeural',
+        'ta-IN-female': 'ta-IN-PallaviNeural',
+        'en-US': 'en-US-ChristopherNeural',
+    }
+
+    def __init__(self, default_locale: str = 'en-IN', rate: str = '+0%', pitch: str = '+0Hz'):
+        super().__init__(
+            capabilities=tts.TTSCapabilities(streaming=False),
+            sample_rate=24000,
+            num_channels=1,
+        )
+        self.default_locale = default_locale
+        self.rate = rate
+        self.pitch = pitch
+
+    def detect_voice_for_text(self, text: str) -> str:
+        import re
+        # Detect Tamil Unicode range U+0B80 to U+0BFF
+        if re.search(r'[\u0B80-\u0BFF]', text):
+            return self.VOICE_MAP['ta-IN']
+        # Detect Devanagari (Hindi) Unicode range U+0900 to U+097F
+        if re.search(r'[\u0900-\u097F]', text):
+            return self.VOICE_MAP['hi-IN']
+        # Default to specified locale (e.g. English India)
+        return self.VOICE_MAP.get(self.default_locale, 'en-IN-PrabhatNeural')
+
+    def synthesize(self, text: str, *, conn_options=DEFAULT_API_CONNECT_OPTIONS, **kwargs) -> tts.ChunkedStream:
+        return EdgeChunkedStream(tts=self, input_text=text, conn_options=conn_options)
+
+class EdgeChunkedStream(tts.ChunkedStream):
+    async def _run(self, output_emitter: tts.AudioEmitter) -> None:
+        import io
+        import av
+        import edge_tts
+        
+        tts_instance: EdgeTTS = self._tts
+        output_emitter.initialize(
+            request_id=f"edge-{uuid.uuid4().hex[:8]}",
+            sample_rate=24000,
+            num_channels=1,
+            mime_type="audio/pcm",
+        )
+
+        voice = tts_instance.detect_voice_for_text(self._input_text)
+        logger.info(f"🔊 [EDGE-TTS] Synthesizing with voice {voice} for: \"{self._input_text[:60]}...\"")
+
+        try:
+            communicate = edge_tts.Communicate(
+                text=self._input_text,
+                voice=voice,
+                rate=tts_instance.rate,
+                pitch=tts_instance.pitch
+            )
+            mp3_bytes = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    mp3_bytes.extend(chunk["data"])
+
+            if not mp3_bytes:
+                return
+
+            def _decode_to_pcm():
+                container = av.open(io.BytesIO(mp3_bytes))
+                resampler = av.AudioResampler(format='s16', layout='mono', rate=24000)
+                pcm = bytearray()
+                for frame in container.decode(audio=0):
+                    for resampled in resampler.resample(frame):
+                        pcm.extend(resampled.to_ndarray().tobytes())
+                return bytes(pcm)
+
+            pcm_data = await asyncio.to_thread(_decode_to_pcm)
+            
+            # Emit in 4096-byte frames
+            chunk_size = 4096
+            for i in range(0, len(pcm_data), chunk_size):
+                output_emitter.push(pcm_data[i:i + chunk_size])
+
+            output_emitter.flush()
+        except asyncio.CancelledError:
+            logger.info("⚡ [TTS STREAM] EdgeTTS cancelled (Barge-in / Interrupted)")
+            raise
+        except Exception as e:
+            logger.error(f"EdgeTTS synthesis error: {e}", exc_info=True)
+

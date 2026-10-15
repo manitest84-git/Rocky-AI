@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Rocky AI</string>
+    <string name="title_activity_main">Rocky AI</string>
+    <string name="package_name">ai.rocky.assistant</string>
+    <string name="custom_url_scheme">ai.rocky.assistant</string>
+</resources>

@@ -49,6 +49,8 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
   const [endTime, setEndTime] = useState('');
   const [attendeesInput, setAttendeesInput] = useState('');
   const [agenda, setAgenda] = useState('');
+  const [recurrenceRule, setRecurrenceRule] = useState<string>('NONE');
+  const [category, setCategory] = useState<string>('Work');
 
   // AI Assistant Tab state
   const [aiTitle, setAiTitle] = useState('');
@@ -92,7 +94,9 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
         description: description || undefined,
         location: location || undefined,
         attendees,
-        agenda: agenda || undefined
+        agenda: agenda || undefined,
+        recurrence_rule: recurrenceRule,
+        category: category
       });
 
       setEvents([...events, res.event].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()));
@@ -108,6 +112,8 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
         setStartTime('');
         setEndTime('');
         setAttendeesInput('');
+        setRecurrenceRule('NONE');
+        setCategory('Work');
         setAgenda('');
       }
     } catch (err: any) {
@@ -372,6 +378,24 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
                             <Bell size={10} className="text-amber-400" /> REMINDER
                           </span>
                         )}
+                        {evt.category && (
+                          <span className={`px-1.5 py-0.5 text-[9px] font-orbitron font-semibold rounded border ${
+                            evt.category === 'Personal' 
+                              ? 'bg-amber-950/60 border-amber-500/40 text-amber-300' 
+                              : evt.category === 'Fitness' 
+                              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' 
+                              : evt.category === 'Family' 
+                              ? 'bg-purple-950/60 border-purple-500/40 text-purple-300' 
+                              : 'bg-cyan-950/60 border-cyan-500/40 text-cyan-300'
+                          }`}>
+                            {evt.category}
+                          </span>
+                        )}
+                        {evt.recurrence_rule && evt.recurrence_rule !== 'NONE' && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-orbitron font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-400/30 flex items-center gap-1">
+                            🔄 {evt.recurrence_rule}
+                          </span>
+                        )}
                         <div className="font-bold text-xs text-cyan-100">{evt.title.replace(/^Reminder:\s*/i, '')}</div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -471,6 +495,37 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
                     onChange={(e) => setEndTime(e.target.value)}
                     className="w-full bg-[#03152c] border border-cyan-800/60 rounded px-2 py-1 text-xs text-cyan-200 focus:outline-none"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="cal-category" className="text-[10px] font-orbitron text-cyan-400 block mb-1">CATEGORY</label>
+                  <select
+                    id="cal-category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-[#03152c] border border-cyan-800/60 rounded px-2 py-1.5 text-xs text-cyan-200 focus:outline-none"
+                  >
+                    <option value="Work">💼 Work</option>
+                    <option value="Personal">👤 Personal</option>
+                    <option value="Fitness">⚡ Fitness</option>
+                    <option value="Family">🏡 Family</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cal-recurrence" className="text-[10px] font-orbitron text-cyan-400 block mb-1">RECURRENCE</label>
+                  <select
+                    id="cal-recurrence"
+                    value={recurrenceRule}
+                    onChange={(e) => setRecurrenceRule(e.target.value)}
+                    className="w-full bg-[#03152c] border border-cyan-800/60 rounded px-2 py-1.5 text-xs text-cyan-200 focus:outline-none font-orbitron"
+                  >
+                    <option value="NONE">Single Event</option>
+                    <option value="DAILY">🔄 Daily</option>
+                    <option value="WEEKLY">🔄 Weekly</option>
+                    <option value="MONTHLY">🔄 Monthly</option>
+                  </select>
                 </div>
               </div>
 

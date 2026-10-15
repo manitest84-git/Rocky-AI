@@ -43,9 +43,9 @@ async def _broadcast_voice_control(ctx: JobContext, event_type: str, details: di
         logger.warning(f"Failed to publish voice_control packet: {e}")
 
 
-async def _broadcast_and_save_transcript(ctx: JobContext, role: str, text: str):
+async def _broadcast_and_save_transcript(ctx: JobContext, role: str, text: str, incognito: bool = False):
     """
-    Broadcast voice transcript to room data channel and persist turn to PostgreSQL history.
+    Broadcast voice transcript to room data channel and persist turn to PostgreSQL history (unless incognito).
     """
     if not text or not text.strip():
         return
@@ -63,7 +63,11 @@ async def _broadcast_and_save_transcript(ctx: JobContext, role: str, text: str):
     except Exception as e:
         logger.warning(f"Failed to publish transcript to room data channel: {e}")
 
-    # 2. Persist turn to backend database history
+    # 2. Persist turn to backend database history (skip if incognito)
+    if incognito:
+        logger.info(f"🕵️ [INCOGNITO] Skipping database persistence for turn: '{clean_text[:40]}...'")
+        return
+
     try:
         username = "admin"
         if ctx.room.remote_participants:
@@ -85,13 +89,16 @@ async def _broadcast_and_save_transcript(ctx: JobContext, role: str, text: str):
 class FasterWhisperSTT(stt.STT):
     """
     In-process high-speed local STT using faster-whisper without external network calls.
+    Supports multilingual English (India), Hindi, and Tamil transcription.
     """
-    def __init__(self, model_size="base.en", device="cpu", compute_type="int8"):
+    def __init__(self, model_size=None, device="cpu", compute_type="int8"):
         super().__init__(capabilities=STTCapabilities(streaming=False, interim_results=False))
-        logger.info(f"Loading local Faster-Whisper STT model ({model_size})...")
+        if model_size is None:
+            model_size = os.getenv("WHISPER_MODEL", "base")
+        logger.info(f"Loading local Faster-Whisper multilingual STT model ({model_size})...")
         self._model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self._model_size = model_size
-        logger.info(f"Local Faster-Whisper STT ({model_size}) ready.")
+        logger.info(f"Local Faster-Whisper multilingual STT ({model_size}) ready.")
 
     @property
     def model(self) -> str:
@@ -125,24 +132,26 @@ class FasterWhisperSTT(stt.STT):
 
         def _transcribe():
             try:
+                target_lang = language if language else None
                 segments, info = self._model.transcribe(
                     io.BytesIO(wav_bytes),
                     beam_size=1,
-                    language="en",
+                    language=target_lang,
                     vad_filter=True,
                     vad_parameters=dict(min_silence_duration_ms=250),
                     condition_on_previous_text=False,
                     temperature=0.0
                 )
                 text = " ".join([seg.text for seg in segments]).strip()
-                return text, info.language
+                detected = info.language if hasattr(info, "language") else "en"
+                return text, detected
             except Exception as e:
                 logger.warning(f"Whisper transcription error: {e}")
                 return "", "en"
 
         text, detected_lang = await asyncio.to_thread(_transcribe)
         if text:
-            logger.info(f"🎤 [VOICE TRANSCRIPTION] Transcribed: \"{text}\"")
+            logger.info(f"🎤 [VOICE TRANSCRIPTION] ({detected_lang}) Transcribed: \"{text}\"")
         return SpeechEvent(
             type=SpeechEventType.FINAL_TRANSCRIPT,
             alternatives=[SpeechData(text=text, language=detected_lang or "en")]
@@ -159,18 +168,26 @@ def prewarm(proc: JobProcess):
         logger.warning(f"VAD prewarm notice: {e}")
 
     try:
-        model_name = os.getenv("WHISPER_MODEL", "base.en")
+        model_name = os.getenv("WHISPER_MODEL", "base")
         proc.userdata["stt"] = FasterWhisperSTT(model_size=model_name)
     except Exception as e:
         logger.warning(f"Whisper STT prewarm notice: {e}")
 
     try:
         from jarvis_tts import KokoroTTS
-        tts = KokoroTTS(voice='af_heart', speed=1.05)
+        tts = KokoroTTS(voice='bm_george', speed=1.0)
         tts._ensure_pipeline()
         proc.userdata["tts"] = tts
+        logger.info("British J.A.R.V.I.S. Kokoro-TTS (bm_george) pre-warmed.")
     except Exception as e:
         logger.warning(f"Kokoro TTS prewarm notice: {e}")
+        try:
+            from jarvis_tts import EdgeTTS
+            tts = EdgeTTS(default_locale='en-GB')
+            proc.userdata["tts"] = tts
+            logger.info("Fallback Edge-TTS pre-warmed.")
+        except Exception as e2:
+            logger.warning(f"EdgeTTS prewarm notice: {e2}")
 
     logger.info("Pre-warming completed.")
 
@@ -200,15 +217,16 @@ async def entrypoint(ctx: JobContext):
     llm_instance = openai.LLM.with_ollama(
         model=model_name,
         base_url=f"{ollama_url}/v1",
+        temperature=0.7,
     )
 
-    # Local Whisper STT
+    # Local Whisper STT (Multilingual Base)
     whisper_stt = ctx.proc.userdata.get("stt")
     if whisper_stt is None:
-        whisper_stt = FasterWhisperSTT(model_size=os.getenv("WHISPER_MODEL", "base.en"))
+        whisper_stt = FasterWhisperSTT(model_size=os.getenv("WHISPER_MODEL", "base"))
     stt_stream = stt.StreamAdapter(stt=whisper_stt, vad=vad)
 
-    # TTS Engine: Ultra-low latency streaming ElevenLabs or Sentence-Chunked Streaming KokoroTTS
+    # TTS Engine: British J.A.R.V.I.S. Kokoro (bm_george) with Indic EdgeTTS fallback
     tts_engine = ctx.proc.userdata.get("tts")
     if tts_engine is None:
         eleven_key = os.getenv("ELEVENLABS_API_KEY")
@@ -219,14 +237,12 @@ async def entrypoint(ctx: JobContext):
         else:
             try:
                 from jarvis_tts import KokoroTTS
-                tts_engine = KokoroTTS(voice='af_heart', speed=1.05)
-                tts_engine._ensure_pipeline()
-                logger.info("Using sentence-chunked streaming Kokoro TTS engine.")
+                tts_engine = KokoroTTS(voice='bm_george', speed=1.0)
+                logger.info("Using British J.A.R.V.I.S. Kokoro-TTS (bm_george).")
             except Exception as e:
-                logger.warning(f"Falling back to PiperTTS: {e}")
-                from jarvis_tts import PiperTTS
-                piper_model = os.getenv("PIPER_MODEL_PATH", "/opt/models/en_US-lessac-medium.onnx")
-                tts_engine = PiperTTS(model_path=piper_model)
+                logger.warning(f"Falling back to EdgeTTS: {e}")
+                from jarvis_tts import EdgeTTS
+                tts_engine = EdgeTTS(default_locale='en-GB')
 
     # Ultra-Low Latency Voice Loop Turn Detection:
     # min_delay=0.35s silence closes turn immediately for <600ms latency
@@ -348,6 +364,7 @@ async def entrypoint(ctx: JobContext):
     # Default is PTT (Push-to-Talk) mode as requested
     voice_mode = "ptt"           # "ptt" | "continuous"
     hotword_guard = True         # In continuous mode: True = require "Rocky"; False = natural 2-way conversation
+    is_incognito = False         # Zero-Trace mode: when True, transcripts and memories are not persisted
 
     STOP_PATTERNS = (
         "stop", "rocky stop", "hey rocky stop", "shut up", "rocky shut up",
@@ -370,7 +387,7 @@ async def entrypoint(ctx: JobContext):
                 session.clear_user_turn()
                 asyncio.create_task(session.interrupt(force=True))
                 asyncio.create_task(_broadcast_voice_control(ctx, "interrupted", {"state": "listening", "reason": "voice_stop"}))
-                asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text))
+                asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text, incognito=is_incognito))
                 return
 
             # 2. Hotword Guard in Continuous Mode (Filter ambient room sound / chatter)
@@ -396,9 +413,9 @@ async def entrypoint(ctx: JobContext):
                     ack_msg = "Yes, sir? How can I assist you?"
                     logger.info(f"🗣️ [HOTWORD ACKNOWLEDGEMENT] Rocky: {ack_msg}")
                     await session.say(ack_msg, allow_interruptions=True)
-                    await _broadcast_and_save_transcript(ctx, "assistant", ack_msg)
+                    await _broadcast_and_save_transcript(ctx, "assistant", ack_msg, incognito=is_incognito)
                 asyncio.create_task(_say_hotword_ack())
-                asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text))
+                asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text, incognito=is_incognito))
                 return
 
             # 4. Clean leading hotword if present for cleaner LLM / action processing
@@ -412,7 +429,7 @@ async def entrypoint(ctx: JobContext):
                 processed_text = user_text
 
             logger.info(f"🎤 [VOICE REQUEST RECEIVED] User: \"{processed_text}\" (Raw: \"{user_text}\")")
-            asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text))
+            asyncio.create_task(_broadcast_and_save_transcript(ctx, "user", user_text, incognito=is_incognito))
 
             async def _check_and_run_voice_action():
                 action_spoken = await _execute_voice_action(ctx, session, processed_text)
@@ -421,7 +438,7 @@ async def entrypoint(ctx: JobContext):
                     await session.interrupt(force=True)
                     logger.info(f"🗣️ [SPEAKING VOICE ACTION CONFIRMATION] {action_spoken}")
                     await session.say(action_spoken, allow_interruptions=True)
-                    await _broadcast_and_save_transcript(ctx, "assistant", action_spoken)
+                    await _broadcast_and_save_transcript(ctx, "assistant", action_spoken, incognito=is_incognito)
 
             asyncio.create_task(_check_and_run_voice_action())
 
@@ -433,7 +450,7 @@ async def entrypoint(ctx: JobContext):
         if role == "assistant" and text:
             assistant_text = text.strip()
             logger.info(f"🤖 [AI RESPONSE GENERATED] Rocky: \"{assistant_text}\"")
-            asyncio.create_task(_broadcast_and_save_transcript(ctx, "assistant", assistant_text))
+            asyncio.create_task(_broadcast_and_save_transcript(ctx, "assistant", assistant_text, incognito=is_incognito))
 
     current_agent_state = "idle"
 
@@ -461,7 +478,15 @@ async def entrypoint(ctx: JobContext):
     await session.start(
         room=ctx.room,
         agent=Agent(
-            instructions="""You are Rocky, a sophisticated AI assistant. Be concise, witty, and helpful. Address the user formally but warmly. Never use markdown formatting in responses."""
+            instructions="""You are Rocky, a sophisticated, context-aware personal AI assistant with the demeanor and wit of J.A.R.V.I.S.
+Be concise, intelligent, witty, and warmly helpful. Never use markdown formatting in spoken voice responses.
+
+MULTILINGUAL CAPABILITIES & ANTI-LOOP RULES:
+- You are fluent in English (British accent tone), Tamil (தமிழ்), and Hindi (हिन्दी).
+- Always reply in the language the user speaks to you in.
+- When the user speaks in Tamil, respond in simple, natural spoken Tamil (எளிய பேச்சுத் தமிழ்) or Tanglish. Keep voice responses strictly to 1 or 2 concise, clear sentences.
+- NEVER repeat phrases, words, or sentences from previous turns. Do not repeat phrases like "தென் குனியத்தின் பலவரில்" or invent non-existent words.
+- Keep spoken voice responses short, natural, and conversational (1 to 2 sentences maximum)."""
         ),
         room_options=room_io.RoomOptions(
             close_on_disconnect=True,
@@ -486,18 +511,31 @@ async def entrypoint(ctx: JobContext):
                 if resp.status == 200:
                     data = await resp.json()
                     past_turns = data.get("messages", [])
+                    seen_texts = set()
+                    loaded_count = 0
                     for t in past_turns:
                         role = t.get("role")
-                        content = t.get("content")
+                        content = (t.get("content") or "").strip()
                         if role in ("user", "assistant") and content:
+                            if "தென் குனிய" in content or "அமரன் ஒரு பண்டுகை" in content:
+                                continue
+                            if content in seen_texts:
+                                continue
+                            seen_texts.add(content)
                             session.history.add_message(role=role, content=content)
-                    logger.info(f"Loaded {len(past_turns)} past conversation turns into Rocky memory.")
+                            loaded_count += 1
+                    logger.info(f"Loaded {loaded_count} past conversation turns into Rocky memory (duplicates filtered).")
     except Exception as e:
         logger.warning(f"Could not preload history into Rocky voice session: {e}")
 
     def parse_reminder_request(text: str):
+        """
+        Intelligent relative datetime & task title parser.
+        Supports phrases like 'tomorrow afternoon', 'in 45 minutes', 'next Monday at 3 PM',
+        'tonight at 8', as well as multilingual phrasing.
+        """
         clean = text.strip()
-        pattern = r"^(?:please\s+)?(?:add\s+(?:a\s+)?reminder\s+(?:to|for)?|set\s+(?:a\s+)?reminder\s+(?:to|for)?|create\s+(?:a\s+)?reminder\s+(?:to|for)?|remind\s+me\s+(?:to|about)?)\s+(.+)$"
+        pattern = r"^(?:please\s+)?(?:add\s+(?:a\s+)?reminder\s+(?:to|for)?|set\s+(?:a\s+)?reminder\s+(?:to|for)?|create\s+(?:a\s+)?reminder\s+(?:to|for)?|remind\s+me\s+(?:to|about)?|याद\s+दिलाना|நினைவூட்டு)\s*(.+)$"
         m = re.search(pattern, clean, re.IGNORECASE)
         if not m:
             m = re.search(r"^(?:a\s+)?reminder\s+(?:to|for)\s+(.+)$", clean, re.IGNORECASE)
@@ -506,56 +544,48 @@ async def entrypoint(ctx: JobContext):
 
         raw_body = m.group(1).strip()
         now = datetime.now()
-        target_date = now.date()
-        target_hour = 9
-        target_minute = 0
 
-        if re.search(r"\bday\s+after\s+tomorrow\b", raw_body, re.IGNORECASE):
-            target_date = now.date() + timedelta(days=2)
-            raw_body = re.sub(r"\bday\s+after\s+tomorrow\b", "", raw_body, flags=re.IGNORECASE)
-        elif re.search(r"\btomorrow\b", raw_body, re.IGNORECASE):
-            target_date = now.date() + timedelta(days=1)
-            raw_body = re.sub(r"\btomorrow\b", "", raw_body, flags=re.IGNORECASE)
-        elif re.search(r"\btoday\b", raw_body, re.IGNORECASE):
-            target_date = now.date()
-            raw_body = re.sub(r"\btoday\b", "", raw_body, flags=re.IGNORECASE)
-        elif re.search(r"\btonight\b", raw_body, re.IGNORECASE):
-            target_date = now.date()
-            target_hour = 20
-            raw_body = re.sub(r"\btonight\b", "", raw_body, flags=re.IGNORECASE)
+        # Pre-normalize common colloquialisms into standard date tokens
+        normalized = re.sub(r"\btonight\b", "today at 8pm", raw_body, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bthis afternoon\b", "today at 2pm", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\btomorrow afternoon\b", "tomorrow at 2pm", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\btomorrow evening\b", "tomorrow at 6pm", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\btomorrow morning\b", "tomorrow at 9am", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bकल दोपहर\b", "tomorrow at 2pm", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bकल सुबह\b", "tomorrow at 9am", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bநாளை மாலை\b", "tomorrow at 6pm", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bநாளை காலை\b", "tomorrow at 9am", normalized, flags=re.IGNORECASE)
 
-        rel_m = re.search(r"\bin\s+(\d+)\s*(hour|hr|minute|min)s?\b", raw_body, re.IGNORECASE)
-        if rel_m:
-            val = int(rel_m.group(1))
-            unit = rel_m.group(2).lower()
-            target_dt = now + timedelta(hours=val) if ("hour" in unit or "hr" in unit) else now + timedelta(minutes=val)
-            raw_body = re.sub(r"\bin\s+(\d+)\s*(?:hour|hr|minute|min)s?\b", "", raw_body, flags=re.IGNORECASE)
-            target_date = target_dt.date()
-            target_hour = target_dt.hour
-            target_minute = target_dt.minute
-        else:
-            time_m = re.search(r"(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", raw_body, re.IGNORECASE)
-            if time_m:
-                hr_val = int(time_m.group(1))
-                min_val = int(time_m.group(2)) if time_m.group(2) else 0
-                meridiem = time_m.group(3).lower() if time_m.group(3) else None
-                matched_text = time_m.group(0).strip()
-                if meridiem or "at" in matched_text.lower() or hr_val > 12:
-                    if meridiem == "pm" and hr_val < 12:
-                        hr_val += 12
-                    elif meridiem == "am" and hr_val == 12:
-                        hr_val = 0
-                    target_hour = hr_val
-                    target_minute = min_val
-                    raw_body = re.sub(re.escape(matched_text), "", raw_body)
+        final_dt = None
+        clean_title = raw_body
 
-        clean_title = re.sub(r"\s+", " ", raw_body).strip()
-        clean_title = re.sub(r"^(?:at|on|for)\s+", "", clean_title, flags=re.IGNORECASE)
-        clean_title = re.sub(r"\s+(?:at|on|for)$", "", clean_title, flags=re.IGNORECASE).strip()
+        try:
+            from dateparser.search import search_dates
+            dates = search_dates(
+                normalized,
+                settings={'PREFER_DATES_FROM': 'future', 'RELATIVE_BASE': now}
+            )
+            if dates:
+                matched_str, parsed_dt = dates[0]
+                # If parsed hour was 0:00 without explicit midnight, default to 9 AM
+                if parsed_dt.hour == 0 and parsed_dt.minute == 0 and "12:00" not in matched_str:
+                    parsed_dt = parsed_dt.replace(hour=9, minute=0)
+                final_dt = parsed_dt
+                clean_title = normalized.replace(matched_str, "")
+        except Exception as e:
+            logger.debug(f"dateparser search notice: {e}")
+
+        if final_dt is None:
+            final_dt = now + timedelta(days=1)
+            final_dt = final_dt.replace(hour=9, minute=0, second=0, microsecond=0)
+
+        # Clean up remaining prepositions and whitespace
+        clean_title = re.sub(r"\s+", " ", clean_title).strip()
+        clean_title = re.sub(r"^(?:at|on|for|to|about|को|க்கு)\s+", "", clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r"\s+(?:at|on|for|to|about)$", "", clean_title, flags=re.IGNORECASE).strip()
         if not clean_title:
             clean_title = "Reminder"
 
-        final_dt = datetime(target_date.year, target_date.month, target_date.day, target_hour, target_minute, 0)
         formatted_title = clean_title[0].upper() + clean_title[1:] if len(clean_title) > 1 else clean_title.upper()
         return {
             "title": formatted_title,
@@ -914,6 +944,196 @@ async def entrypoint(ctx: JobContext):
                 logger.warning(f"Failed to publish ui_action: {e}")
             return "Opening your task manager, sir."
 
+        # 8. Morning / Daily Voice Briefing
+        if re.search(r"(?:give\s+me\s+a\s+|what(?:\'s|\s+is)\s+my\s+)?(?:morning\s+briefing|daily\s+briefing|daily\s+summary|schedule\s+today|agenda\s+today|what(?:\'s|\s+is)\s+on\s+today)", clean, re.IGNORECASE):
+            try:
+                async with aiohttp.ClientSession() as http_sess:
+                    async with http_sess.get(
+                        f"{backend_url}/api/assistant/briefing",
+                        params={"username": username},
+                        timeout=aiohttp.ClientTimeout(total=3.0)
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            b_text = data.get("briefing_text")
+                            if b_text:
+                                try:
+                                    payload = json.dumps({
+                                        "type": "ui_action",
+                                        "action": "open_panel",
+                                        "panel": "calendar"
+                                    }).encode("utf-8")
+                                    await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+                                except Exception:
+                                    pass
+                                return b_text
+            except Exception as e:
+                logger.warning(f"Failed to fetch morning briefing: {e}")
+            return "Good day, sir. Your schedule is clear, and all systems are operational."
+
+        # 9. Autonomous Memory Learning: "remember that ...", "keep in mind that ...", "i prefer ..."
+        mem_match = re.search(r"(?:please\s+)?(?:remember\s+that|remember|keep\s+in\s+mind\s+that|take\s+note\s+that|take\s+note)\s+(.+)", clean, re.IGNORECASE)
+        pref_match = None
+        if not mem_match:
+            pref_match = re.search(r"^(?:please\s+)?(?:i\s+prefer|i\s+like|my\s+preference\s+is)\s+(.+)", clean, re.IGNORECASE)
+        
+        if mem_match or pref_match:
+            fact = (mem_match.group(1) if mem_match else pref_match.group(1)).strip().capitalize()
+            fact = re.sub(r"[\.\?!]+$", "", fact)
+            cat = "preference" if pref_match or "prefer" in fact.lower() or "like" in fact.lower() else "personal"
+            
+            if is_incognito:
+                return "Incognito zero-trace mode is active, sir. No long-term memory records will be saved."
+
+            async with aiohttp.ClientSession() as http_sess:
+                try:
+                    await http_sess.post(
+                        f"{backend_url}/api/assistant/action",
+                        json={
+                            "username": username,
+                            "action": "add_memory",
+                            "data": {"fact": fact, "category": cat}
+                        },
+                        timeout=aiohttp.ClientTimeout(total=2.5)
+                    )
+                except Exception as e:
+                    logger.warning(f"Error persisting autonomous memory: {e}")
+
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "memory_map"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+
+            return f"Understood, sir. I have committed that to memory: '{fact}'."
+
+        # 10. Finances & Budget Matrix Navigation
+        if re.search(r"(?:open|show|view|display)\s+(?:my\s+|the\s+)?(?:finances?|budget|expenses?|financials?|budget\s+matrix)", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "finance"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Opening your financial ledger and budget matrix, sir."
+
+        # 11. System Memory Map Navigation
+        if re.search(r"(?:open|show|view|display)\s+(?:my\s+|the\s+)?(?:memory\s+map|memories|system\s+topology|learned\s+memories)", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "memory_map"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Displaying system memory map and connected neural topology, sir."
+
+        # 12. Smart Home Navigation
+        if re.search(r"(?:open|show|view|display)\s+(?:my\s+|the\s+)?(?:smart\s+home|smart\s+devices|devices|home\s+automation)", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "smarthome"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Opening smart home device matrix, sir."
+
+        # 13. Profile & Settings Navigation
+        if re.search(r"(?:open|show|view|display)\s+(?:my\s+|the\s+)?(?:user\s+profile|operator\s+profile|profile|settings|preferences)", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "profile"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Opening operator profile and system preferences, sir."
+
+        # 14. Close / Dismiss Panels
+        if re.search(r"^(?:close|dismiss|hide|minimize)(?:\s+(?:all\s+)?(?:panels?|drawers?|windows?|screens?|everything))?$", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "close_panels",
+                    "panel": "close"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Closing active panels, sir."
+
+        # 15. Real-Time Weather Forecast (Open-Meteo)
+        weather_match = re.search(r"(?:what(?:\'s|\s+is)\s+the\s+weather|weather\s+report|weather\s+forecast|how(?:\'s|\s+is)\s+the\s+weather)(?:\s+(?:in|for|like\s+in)\s+([a-zA-Z\s]+))?", clean, re.IGNORECASE)
+        city_target = "bengaluru"
+        is_weather_query = False
+        if weather_match:
+            is_weather_query = True
+            if weather_match.group(1):
+                city_target = weather_match.group(1).strip()
+        elif any(w in clean for w in ("is it raining", "temperature outside", "is it sunny", "weather outside")):
+            is_weather_query = True
+
+        if is_weather_query:
+            try:
+                async with aiohttp.ClientSession() as http_sess:
+                    async with http_sess.get(
+                        f"{backend_url}/api/external/weather",
+                        params={"city": city_target},
+                        timeout=aiohttp.ClientTimeout(total=3.5)
+                    ) as resp:
+                        if resp.status == 200:
+                            w_data = await resp.json()
+                            summary = w_data.get("summary")
+                            if summary:
+                                return f"{summary}"
+            except Exception as e:
+                logger.warning(f"Failed to fetch weather: {e}")
+            return f"Weather metrics are temporarily offline for {city_target}, sir."
+
+        # 16. Tech & Global News Headlines
+        if re.search(r"(?:what(?:\'s|\s+is)\s+(?:in\s+the|the)\s+news|give\s+me\s+(?:the\s+)?news|news\s+headlines|latest\s+headlines|tech\s+news)", clean, re.IGNORECASE):
+            try:
+                async with aiohttp.ClientSession() as http_sess:
+                    async with http_sess.get(
+                        f"{backend_url}/api/external/news",
+                        timeout=aiohttp.ClientTimeout(total=4.0)
+                    ) as resp:
+                        if resp.status == 200:
+                            n_data = await resp.json()
+                            summary = n_data.get("summary")
+                            if summary:
+                                return f"{summary}"
+            except Exception as e:
+                logger.warning(f"Failed to fetch news: {e}")
+            return "Unable to synchronize news feeds at this moment, sir."
+
+        # 17. Educational Study Matrix & Quiz Mode Navigation
+        if re.search(r"(?:open|show|start|launch)\s+(?:the\s+|a\s+)?(?:study\s+matrix|quiz|quiz\s+mode|study\s+deck|flashcards?|learning\s+hub)", clean, re.IGNORECASE):
+            try:
+                payload = json.dumps({
+                    "type": "ui_action",
+                    "action": "open_panel",
+                    "panel": "study"
+                }).encode("utf-8")
+                await ctx.room.local_participant.publish_data(payload, reliable=True, topic="ui_action")
+            except Exception as e:
+                logger.warning(f"Failed to publish ui_action: {e}")
+            return "Initializing the Study Matrix and AI Quiz terminal, sir. Choose your discipline."
+
         return None
 
     # Handler for Comms chat text messages while voice conversation is online:
@@ -921,14 +1141,14 @@ async def entrypoint(ctx: JobContext):
     async def _handle_comms_chat(user_text: str):
         try:
             # 1. Broadcast user turn and persist to database
-            await _broadcast_and_save_transcript(ctx, "user", user_text)
+            await _broadcast_and_save_transcript(ctx, "user", user_text, incognito=is_incognito)
             
-            # 2. Check for panel-integrated action (Shopping, Calendar, Reminders, Tasks)
+            # 2. Check for panel-integrated action (Shopping, Calendar, Reminders, Tasks, Briefing, etc.)
             action_spoken = await _execute_voice_action(ctx, session, user_text)
             if action_spoken:
                 logger.info(f"🗣️ [SPEAKING COMMS ACTION CONFIRMATION] {action_spoken}")
                 await session.say(action_spoken, allow_interruptions=True)
-                await _broadcast_and_save_transcript(ctx, "assistant", action_spoken)
+                await _broadcast_and_save_transcript(ctx, "assistant", action_spoken, incognito=is_incognito)
             else:
                 logger.info(f"🗣️ [SPEAKING COMMS REPLY] Generating spoken reply for: \"{user_text}\"")
                 handle = session.generate_reply(user_input=user_text, allow_interruptions=True)
@@ -940,7 +1160,7 @@ async def entrypoint(ctx: JobContext):
                         if getattr(item, "role", "") == "assistant":
                             txt = getattr(item, "text_content", "") or getattr(item, "raw_text_content", "")
                             if txt:
-                                await _broadcast_and_save_transcript(ctx, "assistant", txt)
+                                await _broadcast_and_save_transcript(ctx, "assistant", txt, incognito=is_incognito)
         except Exception as e:
             logger.error(f"Failed to generate spoken reply for comms chat: {e}", exc_info=True)
 
@@ -961,13 +1181,16 @@ async def entrypoint(ctx: JobContext):
             try:
                 raw_bytes = dp.data
                 cfg = json.loads(raw_bytes.decode("utf-8"))
-                nonlocal voice_mode, hotword_guard
+                nonlocal voice_mode, hotword_guard, is_incognito
                 if "mode" in cfg:
                     voice_mode = cfg["mode"]
                     logger.info(f"⚙️ [VOICE MODE UPDATED VIA DATA CHANNEL] Mode set to: '{voice_mode}'")
                 if "hotword_guard" in cfg:
                     hotword_guard = bool(cfg["hotword_guard"])
                     logger.info(f"🛡️ [HOTWORD GUARD UPDATED VIA DATA CHANNEL] Hotword Guard set to: {hotword_guard}")
+                if "incognito" in cfg:
+                    is_incognito = bool(cfg["incognito"])
+                    logger.info(f"🕵️ [INCOGNITO MODE] Zero-Trace mode set to: {is_incognito}")
             except Exception as e:
                 logger.warning(f"Error parsing voice_config data packet: {e}")
         elif topic == "voice_control":

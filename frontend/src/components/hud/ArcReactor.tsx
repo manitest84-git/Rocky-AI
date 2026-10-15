@@ -1,141 +1,199 @@
 'use client';
-import React, { useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
-import * as THREE from 'three';
+
+import React, { useRef, useEffect, useState } from 'react';
 
 export interface ArcReactorProps {
   volume?: number;
   state?: 'idle' | 'listening' | 'thinking' | 'speaking';
 }
 
-const CoreMesh = ({ volume = 0, state = 'idle' }: ArcReactorProps) => {
-  const groupRef = useRef<THREE.Group>(null);
-  const wireframeRef = useRef<THREE.Mesh>(null);
-  const solidRef = useRef<THREE.Mesh>(null);
-  const lightRef = useRef<THREE.PointLight>(null);
+export const ArcReactor = ({ volume = 0, state = 'idle' }: ArcReactorProps) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
 
-  // Initial geometries and materials
-  const geometries = useMemo(() => {
-    return {
-      wireframe: new THREE.IcosahedronGeometry(1.2, 1),
-      solid: new THREE.SphereGeometry(1.1, 32, 32)
-    };
-  }, []);
+  // Autoplay and continuous looping safety across Safari, Chrome & Brave
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
 
-  const materials = useMemo(() => {
-    return {
-      wireframe: new THREE.MeshBasicMaterial({
-        color: new THREE.Color('#00f0ff'),
-        wireframe: true,
-        transparent: true,
-        opacity: 0.8,
-        blending: THREE.AdditiveBlending
-      }),
-      solid: new THREE.MeshStandardMaterial({
-        color: new THREE.Color('#e0f7fa'),
-        transparent: true,
-        opacity: 0.2,
-        emissive: new THREE.Color('#00f0ff'),
-        emissiveIntensity: 0.5
-      })
-    };
-  }, []);
+    vid.defaultMuted = true;
+    vid.muted = true;
 
-  useFrame((stateCtx) => {
-    const time = stateCtx.clock.elapsedTime;
-    
-    if (groupRef.current && wireframeRef.current && lightRef.current) {
-      // Rotation logic based on state
-      const rotationSpeed = state === 'thinking' ? 2.0 : 0.5;
-      groupRef.current.rotation.y += 0.01 * rotationSpeed;
-      groupRef.current.rotation.x += 0.005 * rotationSpeed;
-      wireframeRef.current.rotation.z -= 0.01 * rotationSpeed;
-
-      // Scale/Pulsing logic
-      let targetScale = 1.0;
-      if (state === 'idle' || state === 'thinking') {
-        // Slow breathing
-        targetScale = 1.0 + Math.sin(time * 0.5 * Math.PI) * 0.05;
-      } else if (state === 'speaking' || state === 'listening') {
-        // Reactive to volume
-        targetScale = 1.0 + volume * 0.35;
+    const playVideo = () => {
+      const promise = vid.play();
+      if (promise !== undefined) {
+        promise
+          .then(() => setIsVideoLoaded(true))
+          .catch(() => {
+            // Autoplay blocked by browser policy: unlock on first gesture
+            const unlockAudioContext = () => {
+              vid.play().then(() => setIsVideoLoaded(true)).catch(() => {});
+              window.removeEventListener('click', unlockAudioContext);
+              window.removeEventListener('touchstart', unlockAudioContext);
+              window.removeEventListener('keydown', unlockAudioContext);
+            };
+            window.addEventListener('click', unlockAudioContext, { once: true });
+            window.addEventListener('touchstart', unlockAudioContext, { once: true });
+            window.addEventListener('keydown', unlockAudioContext, { once: true });
+          });
       }
+    };
 
-      // Smooth scale interpolation
-      groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
-
-      // Light intensity pulsing
-      lightRef.current.intensity = 2 + (targetScale - 1) * 5;
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      <mesh ref={wireframeRef} geometry={geometries.wireframe} material={materials.wireframe} />
-      <mesh ref={solidRef} geometry={geometries.solid} material={materials.solid} />
-      <pointLight ref={lightRef} color="#00f0ff" distance={10} intensity={2} />
-    </group>
-  );
-};
-
-const OrbitingRings = ({ state = 'idle' }: { state?: ArcReactorProps['state'] }) => {
-  const groupRef = useRef<THREE.Group>(null);
-  
-  const rings = useMemo(() => {
-    return [
-      { radius: 1.8, tube: 0.02, speed: 0.5, axis: new THREE.Vector3(1, 0, 0) },
-      { radius: 2.2, tube: 0.015, speed: -0.3, axis: new THREE.Vector3(0, 1, 0) },
-      { radius: 2.6, tube: 0.01, speed: 0.7, axis: new THREE.Vector3(0, 0, 1) }
-    ];
+    playVideo();
   }, []);
 
-  useFrame((stateCtx) => {
-    if (groupRef.current) {
-      const multiplier = state === 'thinking' ? 3 : 1;
-      groupRef.current.children.forEach((child, i) => {
-        const ring = rings[i];
-        child.rotateOnAxis(ring.axis, 0.01 * ring.speed * multiplier);
+  // Ambient floating particle embers matching Pinterest motion design
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animId: number;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const size = 460;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.scale(dpr, dpr);
+
+    const particles: Array<{
+      x: number;
+      y: number;
+      radius: number;
+      color: string;
+      alpha: number;
+      speedX: number;
+      speedY: number;
+      pulseSpeed: number;
+      pulseOffset: number;
+    }> = [];
+
+    const colors = ['#00f0ff', '#38bdf8', '#818cf8', '#c084fc', '#ffffff'];
+
+    for (let i = 0; i < 48; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 110 + Math.random() * 85;
+      particles.push({
+        x: size / 2 + Math.cos(angle) * dist,
+        y: size / 2 + Math.sin(angle) * dist,
+        radius: Math.random() * 1.8 + 0.6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: Math.random() * 0.7 + 0.3,
+        speedX: (Math.random() - 0.5) * 0.3,
+        speedY: (Math.random() - 0.5) * 0.3,
+        pulseSpeed: Math.random() * 0.05 + 0.02,
+        pulseOffset: Math.random() * Math.PI * 2,
       });
     }
-  });
+
+    let frame = 0;
+    const render = () => {
+      frame++;
+      ctx.clearRect(0, 0, size, size);
+      ctx.globalCompositeOperation = 'screen';
+
+      particles.forEach((p) => {
+        p.x += p.speedX;
+        p.y += p.speedY;
+
+        // Soft wrap around canvas bounds
+        if (p.x < 20) p.x = size - 20;
+        if (p.x > size - 20) p.x = 20;
+        if (p.y < 20) p.y = size - 20;
+        if (p.y > size - 20) p.y = 20;
+
+        const currentAlpha = Math.max(0.1, p.alpha * (0.6 + 0.4 * Math.sin(frame * p.pulseSpeed + p.pulseOffset)));
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = currentAlpha;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        ctx.fill();
+      });
+
+      ctx.globalAlpha = 1.0;
+      ctx.shadowBlur = 0;
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, []);
+
+  // Audio-reactive scale and glow calculations
+  const scale = 1.0 + Math.min(0.22, (volume || 0) * 0.4);
+  const glowIntensity = 18 + (volume || 0) * 45;
+  const isThinking = state === 'thinking';
+  const isSpeaking = state === 'speaking';
 
   return (
-    <group ref={groupRef}>
-      {rings.map((ring, i) => (
-        <mesh key={i} rotation={[Math.random() * Math.PI, Math.random() * Math.PI, 0]}>
-          <torusGeometry args={[ring.radius, ring.tube, 16, 100]} />
-          <meshBasicMaterial 
-            color="#0088ff" 
-            transparent 
-            opacity={0.4} 
-            blending={THREE.AdditiveBlending}
-            wireframe
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-};
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 w-full h-full select-none">
+      {/* Outer Ethereal Glow Aura */}
+      <div 
+        className="absolute w-[360px] h-[360px] sm:w-[420px] sm:h-[420px] rounded-full pointer-events-none transition-all duration-300"
+        style={{
+          background: isThinking
+            ? 'radial-gradient(circle at center, rgba(255, 145, 0, 0.22) 0%, rgba(147, 51, 234, 0.12) 45%, transparent 70%)'
+            : isSpeaking
+            ? 'radial-gradient(circle at center, rgba(0, 240, 255, 0.35) 0%, rgba(0, 100, 255, 0.18) 45%, transparent 72%)'
+            : 'radial-gradient(circle at center, rgba(0, 160, 255, 0.22) 0%, rgba(0, 60, 200, 0.1) 45%, transparent 70%)',
+          transform: `scale(${scale})`,
+        }}
+      />
 
-export const ArcReactor = ({ volume = 0, state = 'idle' }: ArcReactorProps) => {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 w-full h-full">
-      <Canvas
-        camera={{ position: [0, 0, 6], fov: 45 }}
-        gl={{ toneMapping: THREE.NoToneMapping, alpha: true }}
+      {/* Floating Stardust Canvas Layer */}
+      <canvas
+        ref={canvasRef}
+        className="absolute w-[460px] h-[460px] pointer-events-none z-10"
+        style={{
+          transform: `scale(${scale * 0.98})`,
+          transition: 'transform 0.15s ease-out',
+        }}
+      />
+
+      {/* Center Spherical Orb Container */}
+      <div 
+        className="relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] md:w-[360px] md:h-[360px] flex items-center justify-center pointer-events-none transition-transform duration-150 ease-out"
+        style={{
+          transform: `scale(${scale})`,
+        }}
       >
-        <ambientLight intensity={0.5} />
-        <CoreMesh volume={volume} state={state} />
-        <OrbitingRings state={state} />
-        <EffectComposer>
-          <Bloom
-            luminanceThreshold={0.1}
-            intensity={1.5}
-            mipmapBlur={true}
-          />
-        </EffectComposer>
-      </Canvas>
+        {/* Core Glowing Video Stream */}
+        <video
+          ref={videoRef}
+          poster="/blue_sphere.webp"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          className="w-full h-full object-cover rounded-full mix-blend-screen pointer-events-none select-none transition-all duration-200"
+          style={{
+            maskImage: 'radial-gradient(circle at center, black 65%, rgba(0, 0, 0, 0.7) 82%, transparent 96%)',
+            WebkitMaskImage: 'radial-gradient(circle at center, black 65%, rgba(0, 0, 0, 0.7) 82%, transparent 96%)',
+            filter: `drop-shadow(0 0 ${glowIntensity}px ${isThinking ? 'rgba(255, 165, 0, 0.7)' : 'rgba(0, 240, 255, 0.65)'}) ${
+              isThinking ? 'hue-rotate(25deg) brightness(1.2)' : isSpeaking ? 'brightness(1.15) contrast(1.05)' : 'brightness(1.05)'
+            }`,
+          }}
+        >
+          <source src="/blue_sphere.webm" type="video/webm" />
+          <source src="/blue_sphere.mp4" type="video/mp4" />
+        </video>
+
+        {/* Ethereal Rim Accent Ring */}
+        <div 
+          className="absolute inset-0 rounded-full border border-cyan-400/40 pointer-events-none shadow-[0_0_20px_rgba(0,240,255,0.4)]"
+          style={{
+            opacity: isSpeaking ? 0.9 : 0.6,
+          }}
+        />
+      </div>
     </div>
   );
 };

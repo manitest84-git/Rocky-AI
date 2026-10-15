@@ -16,20 +16,49 @@ export const PALETTE = {
   glass: 'rgba(0, 240, 255, 0.05)',
 };
 
+export const DEFAULT_TAILSCALE_HOST = '100.125.118.104';
+export const DEFAULT_LAN_HOST = '192.168.0.111';
+
+export const getEffectiveServerHost = (): string => {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('rocky_server_host');
+    if (saved && saved.trim()) return saved.trim();
+
+    const host = window.location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1' && host !== '0.0.0.0') {
+      return host;
+    }
+    // Inside Capacitor Android APK, window.location is localhost/file, so route to remote host
+    const isCapacitor = typeof (window as any).Capacitor !== 'undefined' || window.location.protocol === 'capacitor:';
+    if (isCapacitor) {
+      return DEFAULT_LAN_HOST;
+    }
+    return 'localhost';
+  }
+  return process.env.NEXT_PUBLIC_SERVER_HOST || DEFAULT_LAN_HOST;
+};
+
 export const getApiUrl = (): string => {
   if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    return `${protocol}//${host}:8333`;
+    const targetHost = getEffectiveServerHost();
+    if (targetHost.startsWith('http://') || targetHost.startsWith('https://')) {
+      return targetHost;
+    }
+    const cleanHost = targetHost.replace(/:\d+$/, '');
+    const port = targetHost.includes(':') ? targetHost.split(':')[1] : '8333';
+    return `http://${cleanHost}:${port}`;
   }
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8333';
 };
 
 export const getLiveKitUrl = (): string => {
   if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${host}:7880`;
+    const targetHost = getEffectiveServerHost();
+    if (targetHost.startsWith('ws://') || targetHost.startsWith('wss://')) {
+      return targetHost;
+    }
+    const cleanHost = targetHost.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+    return `ws://${cleanHost}:7880`;
   }
   return process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
 };

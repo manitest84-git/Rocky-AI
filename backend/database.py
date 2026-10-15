@@ -173,6 +173,20 @@ async def init_db():
                     attendees TEXT[],
                     agenda TEXT,
                     action_items JSONB DEFAULT '[]'::jsonb,
+                    recurrence_rule VARCHAR(100) DEFAULT 'NONE',
+                    category VARCHAR(50) DEFAULT 'Work',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_rule VARCHAR(100) DEFAULT 'NONE';
+                ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'Work';
+
+                -- User Autonomous Memories & Preferences
+                CREATE TABLE IF NOT EXISTS user_memories (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    fact TEXT NOT NULL,
+                    category VARCHAR(50) DEFAULT 'preference',
+                    confidence FLOAT DEFAULT 1.0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -512,7 +526,7 @@ async def get_user_notes(user_id: int) -> List[Dict[str, Any]]:
 async def create_calendar_event(
     user_id: int, title: str, start_time: str, end_time: str,
     description: str = "", location: str = "", attendees: List[str] = None,
-    agenda: str = ""
+    agenda: str = "", recurrence_rule: str = "NONE", category: str = "Work"
 ) -> Dict[str, Any]:
     p = await get_pg_pool()
     async with p.acquire() as conn:
@@ -520,11 +534,11 @@ async def create_calendar_event(
         et_dt = _parse_dt(end_time)
         row = await conn.fetchrow(
             """
-            INSERT INTO calendar_events (user_id, title, description, location, start_time, end_time, attendees, agenda)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, user_id, title, description, location, start_time, end_time, attendees, agenda, action_items, created_at;
+            INSERT INTO calendar_events (user_id, title, description, location, start_time, end_time, attendees, agenda, recurrence_rule, category)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id, user_id, title, description, location, start_time, end_time, attendees, agenda, action_items, recurrence_rule, category, created_at;
             """,
-            user_id, title, description, location, st_dt, et_dt, attendees or [], agenda
+            user_id, title, description, location, st_dt, et_dt, attendees or [], agenda, recurrence_rule or "NONE", category or "Work"
         )
         return dict(row)
 
@@ -825,5 +839,44 @@ async def execute_automation_routine(routine_id: int) -> Dict[str, Any]:
             "routine_name": routine.get("routine_name"),
             "actions_executed": executed_count
         }
+
+# User Autonomous Memories & Preferences
+async def add_user_memory(user_id: int, fact: str, category: str = "preference", confidence: float = 1.0) -> Dict[str, Any]:
+    p = await get_pg_pool()
+    async with p.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO user_memories (user_id, fact, category, confidence)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, user_id, fact, category, confidence, created_at;
+            """,
+            user_id, fact, category, confidence
+        )
+        return dict(row)
+
+async def get_user_memories(user_id: int) -> List[Dict[str, Any]]:
+    p = await get_pg_pool()
+    async with p.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM user_memories WHERE user_id = $1 ORDER BY created_at DESC;",
+            user_id
+        )
+        return [dict(r) for r in rows]
+
+async def delete_user_memory(user_id: int, memory_id: int) -> bool:
+    p = await get_pg_pool()
+    async with p.acquire() as conn:
+        res = await conn.execute(
+            "DELETE FROM user_memories WHERE id = $1 AND user_id = $2;",
+            memory_id, user_id
+        )
+        return "DELETE 1" in res
+
+async def purge_user_memories(user_id: int) -> bool:
+    p = await get_pg_pool()
+    async with p.acquire() as conn:
+        await conn.execute("DELETE FROM user_memories WHERE user_id = $1;", user_id)
+        return True
+
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Menu, X, Users, Shield, Cpu, Mic, MessageSquare, Database, LogOut, Activity, Home, Sliders, CheckSquare, Calendar, DollarSign, Lock, Layers, User } from 'lucide-react';
+import { Menu, X, Users, Shield, Cpu, Mic, MessageSquare, Database, LogOut, Activity, Home, Sliders, CheckSquare, Calendar, DollarSign, Lock, Layers, User, GraduationCap, Globe, Server } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 interface NavigationDrawerProps {
@@ -13,6 +13,9 @@ interface NavigationDrawerProps {
   onOpenSmartHome?: () => void;
   onOpenMemoryMap?: () => void;
   onOpenUserProfile?: () => void;
+  onOpenStudyMatrix?: () => void;
+  onOpenIntegrations?: () => void;
+  onOpenServerConfig?: () => void;
 }
 
 export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({ 
@@ -24,6 +27,9 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   onOpenSmartHome,
   onOpenMemoryMap,
   onOpenUserProfile,
+  onOpenStudyMatrix,
+  onOpenIntegrations,
+  onOpenServerConfig,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout, isAdmin } = useAuth();
@@ -31,13 +37,13 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   return (
     <>
       {/* Top Left Menu Icon Trigger */}
-      <div className="absolute top-8 left-8 z-30 flex items-center gap-3">
+      <div className="absolute top-3 left-3 sm:top-5 sm:left-5 z-30 flex items-center gap-3">
         <button
           onClick={() => setIsOpen(true)}
-          className="p-2.5 rounded-lg bg-[#031024]/80 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-cyan-100 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all backdrop-blur-md flex items-center justify-center group"
+          className="p-2 sm:p-2.5 rounded-lg bg-[#031024]/80 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-cyan-100 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all backdrop-blur-md flex items-center justify-center group"
           title="Open System Menu"
         >
-          <Menu size={20} className="group-hover:scale-110 transition-transform" />
+          <Menu size={18} className="sm:w-5 sm:h-5 group-hover:scale-110 transition-transform" />
         </button>
       </div>
 
@@ -189,16 +195,41 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                   </button>
                 )}
 
-                {/* Future Feature Placeholders */}
-                <div className="w-full px-3 py-2.5 rounded-md text-cyan-300/80 hover:text-cyan-100 hover:bg-cyan-950/40 flex items-center gap-3 transition-all text-xs font-orbitron cursor-default opacity-60">
-                  <Database size={16} className="text-cyan-500" />
-                  <span>Knowledge Base / RAG (Upcoming)</span>
-                </div>
+                {/* Study Matrix & AI Quiz */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (onOpenStudyMatrix) onOpenStudyMatrix();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-md bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 hover:border-cyan-400 text-cyan-200 flex items-center gap-3 transition-all text-xs font-orbitron group mb-2 shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+                >
+                  <GraduationCap size={16} className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                  <span>Study Matrix & AI Quiz</span>
+                </button>
 
-                <div className="w-full px-3 py-2.5 rounded-md text-cyan-300/80 hover:text-cyan-100 hover:bg-cyan-950/40 flex items-center gap-3 transition-all text-xs font-orbitron cursor-default opacity-60">
-                  <Sliders size={16} className="text-cyan-500" />
-                  <span>Tool Integrations (Upcoming)</span>
-                </div>
+                {/* External Services & Weather */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (onOpenIntegrations) onOpenIntegrations();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-md bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 hover:border-cyan-400 text-cyan-200 flex items-center gap-3 transition-all text-xs font-orbitron group mb-2 shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+                >
+                  <Globe size={16} className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                  <span>Weather & News Wire</span>
+                </button>
+
+                {/* Server Uplink & Remote Endpoint Settings */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (onOpenServerConfig) onOpenServerConfig();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-md bg-purple-950/30 hover:bg-purple-900/40 border border-purple-500/40 hover:border-purple-400 text-purple-200 flex items-center gap-3 transition-all text-xs font-orbitron group mb-2 shadow-[0_0_10px_rgba(168,85,247,0.15)]"
+                >
+                  <Server size={16} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                  <span>Server Uplink / Host IP</span>
+                </button>
               </div>
             </div>
 

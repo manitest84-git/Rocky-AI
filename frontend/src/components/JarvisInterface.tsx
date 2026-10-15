@@ -4,8 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 // HUD components
 import { PerspectiveGrid } from './hud/PerspectiveGrid';
-import { ArcReactor } from './hud/ArcReactor';
-import { HudRings } from './hud/HudRings';
 import { CircularVisualizer } from './hud/CircularVisualizer';
 import { HologramCard } from './hud/HologramCard';
 
@@ -60,6 +58,9 @@ import { VaultBackupDrawer } from './hud/VaultBackupDrawer';
 import ProactiveSmartHomeDrawer from './hud/ProactiveSmartHomeDrawer';
 import { MemoryMapDrawer } from './hud/MemoryMapDrawer';
 import { UserProfileDrawer } from './hud/UserProfileDrawer';
+import { StudyMatrixDrawer } from './hud/StudyMatrixDrawer';
+import { LiveIntegrationsDrawer } from './hud/LiveIntegrationsDrawer';
+import { ServerConfigModal } from './nav/ServerConfigModal';
 import { User, LogOut, Settings, Maximize2, Minimize2, MessageSquare, Radio, Layers, Sliders } from 'lucide-react';
 
 
@@ -237,19 +238,13 @@ const JarvisRoom = ({
       )}
       
       {/* Top Left: Status */}
-      <div className="absolute top-4 sm:top-8 left-16 sm:left-24 z-10 scale-90 sm:scale-100 origin-left">
+      <div className="absolute top-3 sm:top-5 left-14 sm:left-20 z-10 scale-85 sm:scale-100 origin-left">
         <StatusIndicator state={effectiveState as any} />
       </div>
 
-      {/* Center: Visuals */}
-      <div className="absolute top-[45%] md:top-1/2 left-1/2 md:left-[calc(50%-200px)] -translate-x-1/2 -translate-y-1/2 z-0 flex items-center justify-center scale-80 sm:scale-95 md:scale-100 transition-transform">
-        <ArcReactor volume={volume} state={effectiveState as any} />
-        <div className="absolute">
-          <HudRings state={effectiveState as any} />
-        </div>
-        <div className="absolute">
-          <CircularVisualizer analyserData={frequencyData} />
-        </div>
+      {/* Center: Visuals (Blue Sphere Orb) */}
+      <div className="absolute top-[38%] sm:top-[42%] md:top-1/2 left-1/2 md:left-[calc(50%-200px)] -translate-x-1/2 -translate-y-1/2 z-0 flex items-center justify-center scale-90 sm:scale-100 md:scale-105 transition-transform pointer-events-none">
+        <CircularVisualizer analyserData={frequencyData} volume={volume} state={effectiveState as any} />
       </div>
     </>
   );
@@ -299,6 +294,10 @@ export const JarvisInterface = () => {
   // System Memory Map & Operator Profile Drawer States
   const [isMemoryMapOpen, setIsMemoryMapOpen] = useState<boolean>(false);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState<boolean>(false);
+  const [isIncognito, setIsIncognito] = useState<boolean>(false);
+  const [isStudyMatrixOpen, setIsStudyMatrixOpen] = useState<boolean>(false);
+  const [isIntegrationsOpen, setIsIntegrationsOpen] = useState<boolean>(false);
+  const [isServerConfigOpen, setIsServerConfigOpen] = useState<boolean>(false);
 
   // Full-Duplex Interruption & Barge-in handler
   const handleVoiceControl = useCallback((ctrl: any) => {
@@ -336,12 +335,34 @@ export const JarvisInterface = () => {
     if (panel === 'shopping') {
       setFinanceInitialTab('shopping');
       setIsFinanceOpen(true);
+    } else if (panel === 'finance' || panel === 'finances') {
+      setFinanceInitialTab('expenses');
+      setIsFinanceOpen(true);
     } else if (panel === 'calendar' || panel === 'reminders') {
       setIsCalendarOpen(true);
     } else if (panel === 'tasks') {
       setIsTaskManagerOpen(true);
     } else if (panel === 'smarthome') {
       setIsSmartHomeOpen(true);
+    } else if (panel === 'memory_map' || panel === 'memory') {
+      setIsMemoryMapOpen(true);
+    } else if (panel === 'profile') {
+      setIsUserProfileOpen(true);
+    } else if (panel === 'study' || panel === 'quiz') {
+      setIsStudyMatrixOpen(true);
+    } else if (panel === 'weather' || panel === 'news' || panel === 'integrations') {
+      setIsIntegrationsOpen(true);
+    } else if (panel === 'close' || action === 'close_panels') {
+      setIsFinanceOpen(false);
+      setIsCalendarOpen(false);
+      setIsTaskManagerOpen(false);
+      setIsSmartHomeOpen(false);
+      setIsMemoryMapOpen(false);
+      setIsUserProfileOpen(false);
+      setIsStudyMatrixOpen(false);
+      setIsIntegrationsOpen(false);
+      setIsAdminPanelOpen(false);
+      setIsVaultOpen(false);
     }
   }, []);
 
@@ -410,6 +431,7 @@ export const JarvisInterface = () => {
             type: 'voice_config',
             mode: 'continuous',
             hotword_guard: hotwordGuard,
+            incognito: isIncognito,
           }));
           await activeRoom.localParticipant.publishData(payload, { reliable: true, topic: 'voice_config' });
         } catch (e) {
@@ -425,6 +447,7 @@ export const JarvisInterface = () => {
             type: 'voice_config',
             mode: 'ptt',
             hotword_guard: hotwordGuard,
+            incognito: isIncognito,
           }));
           await activeRoom.localParticipant.publishData(payload, { reliable: true, topic: 'voice_config' });
         } catch (e) {
@@ -433,7 +456,7 @@ export const JarvisInterface = () => {
       }
       setCurrentSubtitle("Push-to-Talk Mode Active. Hold Spacebar or on-screen button to speak.");
     }
-  }, [activeRoom, inactivityTimeout, hotwordGuard]);
+  }, [activeRoom, inactivityTimeout, hotwordGuard, isIncognito]);
 
   const handleToggleHotwordGuard = useCallback(async () => {
     const nextGuard = !hotwordGuard;
@@ -444,13 +467,37 @@ export const JarvisInterface = () => {
           type: 'voice_config',
           mode: conversationMode,
           hotword_guard: nextGuard,
+          incognito: isIncognito,
         }));
         await activeRoom.localParticipant.publishData(payload, { reliable: true, topic: 'voice_config' });
       } catch (e) {
         console.warn("Hotword guard publish notice:", e);
       }
     }
-  }, [activeRoom, conversationMode, hotwordGuard]);
+  }, [activeRoom, conversationMode, hotwordGuard, isIncognito]);
+
+  const handleToggleIncognito = useCallback(async () => {
+    const nextVal = !isIncognito;
+    setIsIncognito(nextVal);
+    if (isRoomConnected(activeRoom)) {
+      try {
+        const payload = new TextEncoder().encode(JSON.stringify({
+          type: 'voice_config',
+          mode: conversationMode,
+          hotword_guard: hotwordGuard,
+          incognito: nextVal,
+        }));
+        await activeRoom.localParticipant.publishData(payload, { reliable: true, topic: 'voice_config' });
+      } catch (e) {
+        console.warn("Incognito mode publish notice:", e);
+      }
+    }
+    if (nextVal) {
+      setCurrentSubtitle("🕵️ Zero-Trace Incognito Mode Enabled. Turns & transcripts will not be persisted.");
+    } else {
+      setCurrentSubtitle("Standard Operation Mode Restored. Conversation persistence active.");
+    }
+  }, [activeRoom, conversationMode, hotwordGuard, isIncognito]);
 
   const handleStopRocky = useCallback(async () => {
     console.log("🛑 Stop command triggered (Escape or Stop button)");
@@ -518,12 +565,13 @@ export const JarvisInterface = () => {
         type: 'voice_config',
         mode: conversationMode,
         hotword_guard: hotwordGuard,
+        incognito: isIncognito,
       }));
       activeRoom.localParticipant.publishData(payload, { reliable: true, topic: 'voice_config' }).catch((err: any) => {
         console.warn("Initial voice_config publish notice:", err);
       });
     }
-  }, [activeRoom, conversationMode, hotwordGuard]);
+  }, [activeRoom, conversationMode, hotwordGuard, isIncognito]);
 
   // Global Keyboard shortcuts: Spacebar for PTT, Escape for Stop
   useEffect(() => {
@@ -660,6 +708,9 @@ export const JarvisInterface = () => {
         onOpenSmartHome={() => setIsSmartHomeOpen(true)}
         onOpenMemoryMap={() => setIsMemoryMapOpen(true)}
         onOpenUserProfile={() => setIsUserProfileOpen(true)}
+        onOpenStudyMatrix={() => setIsStudyMatrixOpen(true)}
+        onOpenIntegrations={() => setIsIntegrationsOpen(true)}
+        onOpenServerConfig={() => setIsServerConfigOpen(true)}
       />
 
       {/* Drawers */}
@@ -695,9 +746,24 @@ export const JarvisInterface = () => {
         inactivityTimeout={inactivityTimeout}
         onSaveTimeout={handleSaveInactivityTimeout}
       />
+      <StudyMatrixDrawer
+        isOpen={isStudyMatrixOpen}
+        onClose={() => setIsStudyMatrixOpen(false)}
+      />
+      <LiveIntegrationsDrawer
+        isOpen={isIntegrationsOpen}
+        onClose={() => setIsIntegrationsOpen(false)}
+      />
+      <ServerConfigModal
+        isOpen={isServerConfigOpen}
+        onClose={() => setIsServerConfigOpen(false)}
+      />
 
       {/* Login Modal prompt if not authenticated */}
-      <LoginModal isOpen={!isAuthenticated} />
+      <LoginModal
+        isOpen={!isAuthenticated}
+        onOpenServerConfig={() => setIsServerConfigOpen(true)}
+      />
 
       {/* Admin Management Panel */}
       <AdminPanel isOpen={isAdminPanelOpen} onClose={() => setIsAdminPanelOpen(false)} />
@@ -735,10 +801,10 @@ export const JarvisInterface = () => {
           </button>
         </div>
 
-        {/* System Memory Map Button */}
+        {/* System Memory Map Button (Visible on desktop/tablet, inside drawer on mobile) */}
         <button
           onClick={() => setIsMemoryMapOpen(true)}
-          className="p-2 sm:px-3 sm:py-1.5 rounded-lg bg-[#020813]/80 hover:bg-cyan-950/60 border border-cyan-500/40 text-cyan-400 hover:text-cyan-200 transition-all font-orbitron text-xs flex items-center gap-1.5 backdrop-blur-md shadow-[0_0_12px_rgba(0,240,255,0.2)] cursor-pointer"
+          className="hidden sm:flex p-2 sm:px-3 sm:py-1.5 rounded-lg bg-[#020813]/80 hover:bg-cyan-950/60 border border-cyan-500/40 text-cyan-400 hover:text-cyan-200 transition-all font-orbitron text-xs items-center gap-1.5 backdrop-blur-md shadow-[0_0_12px_rgba(0,240,255,0.2)] cursor-pointer"
           title="System Memory Map & Ecosystem Topology"
         >
           <Layers size={14} className="text-cyan-400 animate-pulse" />
@@ -848,81 +914,84 @@ export const JarvisInterface = () => {
         ) : (
 
           <>
-            {/* Idle state center visuals */}
-            <div className="absolute top-[45%] md:top-1/2 left-1/2 md:left-[calc(50%-200px)] -translate-x-1/2 -translate-y-1/2 z-0 flex items-center justify-center scale-75 sm:scale-90 md:scale-100 transition-transform">
-              <ArcReactor volume={0} state="idle" />
-              <div className="absolute">
-                <HudRings state="idle" />
-              </div>
+            {/* Idle state center visuals (Blue Sphere Orb) */}
+            <div className="absolute top-[38%] sm:top-[42%] md:top-1/2 left-1/2 md:left-[calc(50%-200px)] -translate-x-1/2 -translate-y-1/2 z-0 flex items-center justify-center scale-90 sm:scale-100 md:scale-105 transition-transform pointer-events-none">
+              <CircularVisualizer volume={0} state="idle" />
             </div>
             {/* Top Left Status when not connected */}
-            <div className="absolute top-4 sm:top-8 left-16 sm:left-24 z-10 scale-90 sm:scale-100 origin-left">
+            <div className="absolute top-3 sm:top-5 left-14 sm:left-20 z-10 scale-85 sm:scale-100 origin-left">
               <StatusIndicator state="idle" />
             </div>
           </>
         )}
       </div>
 
-      {/* Subtitles & Dynamic Greeting Bar */}
-      <div className={`transition-opacity duration-300 ${mobileTab === 'comms' ? 'hidden md:flex' : 'flex'} absolute bottom-24 md:bottom-10 left-1/2 md:left-[calc(50%-200px)] -translate-x-1/2 max-w-[92vw] sm:max-w-md md:max-w-lg w-full text-center z-20 justify-center bg-[#020813]/85 backdrop-blur-md p-3 sm:p-4 rounded-xl border border-cyan-900/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)]`}>
-        {isConnecting ? (
-          <DecryptText 
-            text="Establishing secure neural uplink (Continuous Mode)..." 
-            speed={25} 
-            className="text-xs sm:text-sm font-orbitron text-cyan-400"
-          />
-        ) : !isConnected ? (
-          <DecryptText 
-            text={currentSubtitle || "R.O.C.K.Y. Standby. Click INITIALIZE to start continuous conversation."} 
-            speed={30} 
-            className="text-xs sm:text-sm font-orbitron text-cyan-400"
-          />
-        ) : (
-          <DecryptText 
-            text={currentSubtitle || getDynamicGreeting(user?.username)} 
-            speed={25} 
-            className="text-xs sm:text-sm font-orbitron text-cyan-300"
-          />
-        )}
-      </div>
+      {/* Unified Bottom HUD Dock: Subtitles + Voice Controls Cleanly Stacked Without Overlap */}
+      <div className={`transition-all duration-300 ${
+        mobileTab === 'comms' ? 'hidden md:flex' : 'flex'
+      } flex-col items-center z-20 pointer-events-none absolute bottom-2 sm:bottom-4 left-0 right-0 px-3 sm:px-4 md:left-8 md:right-auto md:bottom-8 md:px-0 md:items-start`}>
+        <div className="pointer-events-auto flex flex-col items-center gap-1.5 sm:gap-2 w-full max-w-sm sm:max-w-md">
+          {/* Subtitles & Dynamic Greeting Bar (Positioned safely above controls) */}
+          <div className="w-full text-center bg-[#020813]/90 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-xl border border-cyan-900/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)]">
+            {isConnecting ? (
+              <DecryptText 
+                text="Establishing secure neural uplink (Continuous Mode)..." 
+                speed={25} 
+                className="text-xs sm:text-sm font-orbitron text-cyan-400"
+              />
+            ) : !isConnected ? (
+              <DecryptText 
+                text={currentSubtitle || "R.O.C.K.Y. Standby. Click INITIALIZE to start continuous conversation."} 
+                speed={30} 
+                className="text-xs sm:text-sm font-orbitron text-cyan-400"
+              />
+            ) : (
+              <DecryptText 
+                text={currentSubtitle || getDynamicGreeting(user?.username)} 
+                speed={25} 
+                className="text-xs sm:text-sm font-orbitron text-cyan-300"
+              />
+            )}
+          </div>
 
-      {/* Voice Controls: Accessible on both mobile and laptop */}
-      <div className={`transition-all duration-300 ${mobileTab === 'comms' ? 'hidden md:block' : 'block'} absolute bottom-4 left-1/2 -translate-x-1/2 md:bottom-10 md:left-10 md:translate-x-0 z-20`}>
-        <VoiceControls 
-          onConnect={async () => {
-            setIsManualDisconnect(false);
-            // Pre-request microphone access inside direct user gesture context to satisfy Safari & Chrome security policy
-            try {
-              if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                tempStream.getTracks().forEach((track) => track.stop());
+          {/* Voice Controls Dock */}
+          <VoiceControls 
+            onConnect={async () => {
+              setIsManualDisconnect(false);
+              try {
+                if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+                  const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  tempStream.getTracks().forEach((track) => track.stop());
+                }
+              } catch (micErr) {
+                console.warn("User microphone prompt notice:", micErr);
               }
-            } catch (micErr) {
-              console.warn("User microphone prompt notice:", micErr);
-            }
-            connect(undefined, user?.username);
-          }}
-          onDisconnect={() => {
-            setIsManualDisconnect(true);
-            disconnect();
-            setActiveRoom(null);
-            setAgentVoiceState('idle');
-          }}
-          connectionState={connectionState}
-          isMuted={false}
-          conversationMode={conversationMode}
-          onToggleMode={handleToggleMode}
-          hotwordGuard={hotwordGuard}
-          onToggleHotwordGuard={handleToggleHotwordGuard}
-          isPttActive={isPttActive}
-          onStartPtt={handleStartPtt}
-          onEndPtt={handleEndPtt}
-          inactivityRemaining={inactivityRemaining}
-          inactivityTimeout={inactivityTimeout}
-          isSpeaking={agentVoiceState === 'speaking'}
-          onStopRocky={handleStopRocky}
-          onOpenProfileSettings={() => setIsUserProfileOpen(true)}
-        />
+              connect(undefined, user?.username);
+            }}
+            onDisconnect={() => {
+              setIsManualDisconnect(true);
+              disconnect();
+              setActiveRoom(null);
+              setAgentVoiceState('idle');
+            }}
+            connectionState={connectionState}
+            isMuted={false}
+            conversationMode={conversationMode}
+            onToggleMode={handleToggleMode}
+            hotwordGuard={hotwordGuard}
+            onToggleHotwordGuard={handleToggleHotwordGuard}
+            isPttActive={isPttActive}
+            onStartPtt={handleStartPtt}
+            onEndPtt={handleEndPtt}
+            inactivityRemaining={inactivityRemaining}
+            inactivityTimeout={inactivityTimeout}
+            isSpeaking={agentVoiceState === 'speaking'}
+            onStopRocky={handleStopRocky}
+            onOpenProfileSettings={() => setIsUserProfileOpen(true)}
+            isIncognito={isIncognito}
+            onToggleIncognito={handleToggleIncognito}
+          />
+        </div>
       </div>
 
       {/* Ambient Dictation Floating HUD Bar */}
