@@ -159,11 +159,7 @@ export const CalendarManagerDrawer: React.FC<CalendarManagerDrawerProps> = ({ is
   };
 
   const getFeedUrl = () => {
-    if (typeof window !== 'undefined') {
-      const port = window.location.port ? ':8333' : '';
-      return `${window.location.protocol}//${window.location.hostname}${port}/api/calendar/feed.ics`;
-    }
-    return `${getApiUrl()}/calendar/feed.ics`;
+    return `${getApiUrl()}/api/calendar/feed.ics`;
   };
 
   const handleCopyFeed = async () => {

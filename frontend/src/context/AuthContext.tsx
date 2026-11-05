@@ -37,6 +37,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.removeItem('jarvis_user');
         }
       }
+      const handleAuthExpired = () => {
+        setUser(null);
+        setToken(null);
+      };
+      window.addEventListener('rocky-auth-expired', handleAuthExpired);
+      return () => {
+        window.removeEventListener('rocky-auth-expired', handleAuthExpired);
+      };
     }
   }, []);
 

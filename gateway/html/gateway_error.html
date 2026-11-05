@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rocky AI - Gateway Active</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #020813;
+            color: #e0f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .card {
+            background: rgba(3, 13, 29, 0.85);
+            border: 1px solid rgba(0, 240, 255, 0.4);
+            border-radius: 16px;
+            box-shadow: 0 0 50px rgba(0, 240, 255, 0.15);
+            max-width: 540px;
+            width: 100%;
+            padding: 32px;
+            backdrop-filter: blur(10px);
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #00f0ff;
+            box-shadow: 0 0 10px #00f0ff;
+            animation: pulse 2s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.9); }
+        }
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #00f0ff;
+            text-transform: uppercase;
+        }
+        p {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+        .status-grid {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        .badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-ok {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+        .badge-pending {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+        .instruction {
+            background: rgba(0, 240, 255, 0.05);
+            border-left: 3px solid #00f0ff;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+        .instruction code {
+            color: #00f0ff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .actions {
+            display: flex;
+            gap: 12px;
+        }
+        button, a.btn {
+            background: #00f0ff;
+            color: #020813;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        button:hover, a.btn:hover {
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="indicator"></div>
+            <h1>Rocky AI Single Gateway (Port 3000)</h1>
+        </div>
+        <p>The unified reverse proxy gateway is active. External services and API endpoints are reachable on this port.</p>
+        
+        <div class="status-grid">
+            <div class="status-item">
+                <span>Unified Gateway:</span>
+                <span class="badge badge-ok">Port 3000 Active</span>
+            </div>
+            <div class="status-item">
+                <span>Backend REST API:</span>
+                <span class="badge badge-ok">Ready (/api/health)</span>
+            </div>
+            <div class="status-item">
+                <span>LiveKit WebRTC Signaling:</span>
+                <span class="badge badge-ok">Ready (/rtc)</span>
+            </div>
+            <div class="status-item">
+                <span>Frontend UI Dev Server:</span>
+                <span class="badge badge-pending">Waiting on Port 3001</span>
+            </div>
+        </div>
+
+        <div class="instruction">
+            <strong>Next step:</strong> Start the Next.js frontend dev server by running:<br>
+            <code>cd frontend && npm run dev</code>
+        </div>
+
+        <div class="actions">
+            <button onclick="window.location.reload()">Reload Application</button>
+            <a class="btn" href="/api/health" target="_blank">Test API Health</a>
+            <a class="btn" href="/docs" target="_blank">API Docs</a>
+        </div>
+    </div>
+</body>
+</html>
+

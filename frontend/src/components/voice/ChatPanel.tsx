@@ -88,8 +88,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     setIsStreaming(false);
 
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }, 50);
   }, [incomingVoiceMessage]);
 
   /**
@@ -427,7 +427,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 {msg.role === 'user' ? (user?.username ? user.username.toUpperCase() : 'USER') : 'ROCKY'}
                 {msg.isVoice && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-orbitron inline-flex items-center gap-1 shadow-[0_0_8px_rgba(0,240,255,0.2)]">
-                    <Mic size={9} className="text-cyan-400 animate-pulse" /> VOICE
+                    <Mic size={9} className="text-cyan-400" /> VOICE
                   </span>
                 )}
               </span>

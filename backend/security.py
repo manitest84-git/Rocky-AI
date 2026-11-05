@@ -44,3 +44,18 @@ def decrypt_vault_data(cipher_text: str) -> str:
     except Exception as e:
         logger.error(f"Decryption error: {e}")
         return "[Decryption Failed / Key Mismatch]"
+
+def mask_api_key(api_key: str | None) -> str:
+    """
+    Mask an API key for safe UI display (e.g., 'sk-ant-••••••••W41k').
+    Leaves leading and trailing characters visible if long enough, else generic mask.
+    """
+    if not api_key:
+        return ""
+    key = api_key.strip()
+    if len(key) <= 8:
+        return "••••••••"
+    prefix = key[:6]
+    suffix = key[-4:]
+    return f"{prefix}••••••••{suffix}"
+

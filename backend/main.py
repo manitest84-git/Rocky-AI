@@ -100,8 +100,12 @@ from database import (
     create_financial_transaction, get_user_financial_transactions, delete_financial_transaction,
     get_finance_summary, create_subscription, get_user_subscriptions, delete_subscription,
     create_shopping_item, get_user_shopping_items, toggle_shopping_item, delete_shopping_item,
-    get_all_smart_home_devices, update_smart_home_device, get_all_automation_routines, execute_automation_routine
+    get_all_smart_home_devices, update_smart_home_device, get_all_automation_routines, execute_automation_routine,
+    get_all_llm_providers, get_llm_provider_by_id, create_llm_provider,
+    update_llm_provider, delete_llm_provider, get_all_feature_routes,
+    get_feature_route, update_feature_route
 )
+from llm_engine import llm_router, LLMMessage, ProviderTestResult
 from security import encrypt_vault_data, decrypt_vault_data
 from backup_daemon import trigger_postgresql_backup, get_backup_history, check_backup_liveness_alert
 from proactive_daemon import audit_proactive_system_alerts, proactive_daemon_loop
@@ -357,6 +361,24 @@ async def get_daily_briefing(username: str = "admin"):
         pass
 
     briefing_text = f"Good morning!{weather_snippet} {event_summary} You have {len(reminders)} active reminders. System status is nominal."
+    try:
+        synth_prompt = (
+            f"Synthesize an executive morning audio briefing for the operator based on this data:\n"
+            f"- Weather: {weather_snippet}\n"
+            f"- Calendar Schedule: {event_summary}\n"
+            f"- Active Reminders count: {len(reminders)}\n"
+            f"Style: British J.A.R.V.I.S., polite, crisp, under 3 sentences. No bullet points."
+        )
+        resp = await llm_router.execute_chat(
+            feature_key="daily_briefing_synthesis",
+            messages=[{"role": "user", "content": synth_prompt}],
+            stream=False,
+        )
+        if resp.content and len(resp.content.strip()) > 10:
+            briefing_text = resp.content.strip()
+    except Exception as e:
+        logger.warning(f"Daily briefing LLM synthesis fallback: {e}")
+
     return {
         "status": "success",
         "briefing_text": briefing_text,
@@ -540,27 +562,19 @@ async def remove_calendar_event(event_id: int, current_user: dict = Depends(get_
 
 @app.post("/api/calendar/generate-agenda")
 async def generate_agenda(req: GenerateAgendaRequest, current_user: dict = Depends(get_current_user)):
-    """Use Ollama LLM to generate a structured meeting agenda."""
+    """Use Cognitive LLM Router to generate a structured meeting agenda."""
     prompt = f"Generate a concise, professional 4-bullet meeting agenda for a meeting titled '{req.title}'."
     if req.description:
         prompt += f" Context: {req.description}"
     
     agenda_text = ""
     try:
-        payload = {
-            "model": settings.ollama_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False
-        }
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{settings.validated_ollama_base_url}/api/chat",
-                json=payload,
-                timeout=15.0
-            )
-            if res.status_code == 200:
-                data = res.json()
-                agenda_text = data.get("message", {}).get("content", "")
+        resp = await llm_router.execute_chat(
+            feature_key="calendar_agenda_generation",
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+        )
+        agenda_text = resp.content.strip()
     except Exception as e:
         logger.warning(f"Agenda generation fallback: {e}")
     
@@ -1336,6 +1350,232 @@ async def execute_assistant_action(req: AssistantActionRequest):
         raise HTTPException(status_code=400, detail=f"Unknown assistant action: {action}")
 
 
+# ==========================================
+# LLM Providers & Cognitive Routing Endpoints (Phases 3 & 4)
+# ==========================================
+
+class CreateLLMProviderRequest(BaseModel):
+    name: str
+    provider_type: str
+    base_url: str
+    default_model: str
+    api_key: Optional[str] = None
+    available_models: Optional[List[str]] = None
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 2048
+    timeout_seconds: Optional[int] = 30
+    is_active: Optional[bool] = True
+
+class UpdateLLMProviderRequest(BaseModel):
+    name: Optional[str] = None
+    provider_type: Optional[str] = None
+    base_url: Optional[str] = None
+    default_model: Optional[str] = None
+    api_key: Optional[str] = None
+    available_models: Optional[List[str]] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    timeout_seconds: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class TestLLMProviderRequest(BaseModel):
+    name: Optional[str] = "Test Provider"
+    provider_type: str
+    base_url: str
+    default_model: Optional[str] = None
+    api_key: Optional[str] = None
+    timeout_seconds: Optional[int] = 15
+
+class UpdateFeatureRouteRequest(BaseModel):
+    primary_provider_id: int
+    primary_model: str
+    fallback_provider_id: Optional[int] = None
+    fallback_model: Optional[str] = None
+    system_prompt_override: Optional[str] = None
+    temperature_override: Optional[float] = None
+    max_tokens_override: Optional[int] = None
+
+class TestFeatureRouteRequest(BaseModel):
+    prompt: Optional[str] = "Hello Rocky, are all neural cognitive systems operational? Respond in one sentence."
+
+@app.get("/api/llm/providers")
+async def list_llm_providers(current_user: dict = Depends(get_current_user)):
+    """List all configured LLM providers with masked API keys."""
+    providers = await get_all_llm_providers(include_keys=False)
+    return {"providers": providers}
+
+@app.post("/api/llm/providers")
+async def create_provider_endpoint(req: CreateLLMProviderRequest, current_user: dict = Depends(get_current_user)):
+    """Register a new LLM provider."""
+    try:
+        provider = await create_llm_provider(
+            name=req.name,
+            provider_type=req.provider_type,
+            base_url=req.base_url,
+            default_model=req.default_model,
+            api_key=req.api_key,
+            available_models=req.available_models,
+            temperature=req.temperature if req.temperature is not None else 0.7,
+            max_tokens=req.max_tokens or 2048,
+            timeout_seconds=req.timeout_seconds or 30,
+            is_active=True if req.is_active is None else req.is_active,
+        )
+        llm_router.invalidate_cache()
+        return {"status": "success", "provider": provider}
+    except Exception as e:
+        logger.error(f"Failed to create LLM provider: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/llm/providers/{provider_id}")
+async def update_provider_endpoint(provider_id: int, req: UpdateLLMProviderRequest, current_user: dict = Depends(get_current_user)):
+    """Update settings or credentials of an LLM provider."""
+    try:
+        data = {k: v for k, v in req.model_dump().items() if v is not None}
+        updated = await update_llm_provider(provider_id, data)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        llm_router.invalidate_cache()
+        return {"status": "success", "provider": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update LLM provider {provider_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/llm/providers/{provider_id}")
+async def delete_provider_endpoint(provider_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a custom LLM provider if not system and not in active use."""
+    result = await delete_llm_provider(provider_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to delete provider"))
+    llm_router.invalidate_cache()
+    return {"status": "success", "message": "Provider deleted successfully"}
+
+@app.post("/api/llm/providers/test")
+async def test_provider_endpoint(req: TestLLMProviderRequest, current_user: dict = Depends(get_current_user)):
+    """Run connection ping test against provider endpoint."""
+    provider_data = {
+        "name": req.name or "Test Provider",
+        "provider_type": req.provider_type,
+        "base_url": req.base_url,
+        "api_key": req.api_key,
+        "default_model": req.default_model or "",
+        "timeout_seconds": req.timeout_seconds or 15,
+    }
+    result = await llm_router.test_provider(provider_data)
+    return result.model_dump()
+
+@app.get("/api/llm/providers/{provider_id}/models")
+async def get_provider_models_endpoint(provider_id: int, current_user: dict = Depends(get_current_user)):
+    """Query live list of available models from provider endpoint."""
+    provider = await get_llm_provider_by_id(provider_id, include_key=True)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    try:
+        models = await llm_router.fetch_models(provider)
+        if models:
+            await update_llm_provider(provider_id, {"available_models": models})
+        return {"provider_id": provider_id, "models": models}
+    except Exception as e:
+        logger.warning(f"Error querying models for provider {provider_id}: {e}")
+        return {"provider_id": provider_id, "models": provider.get("available_models") or [], "error": str(e)}
+
+@app.get("/api/llm/routes")
+async def list_feature_routes(current_user: dict = Depends(get_current_user)):
+    """List all application cognitive feature routes with assigned providers."""
+    routes = await get_all_feature_routes(include_keys=False)
+    return {"routes": routes}
+
+@app.put("/api/llm/routes/{feature_key}")
+async def update_feature_route_endpoint(feature_key: str, req: UpdateFeatureRouteRequest, current_user: dict = Depends(get_current_user)):
+    """Update primary and fallback LLM routing for a specific feature."""
+    try:
+        data = req.model_dump()
+        updated = await update_feature_route(feature_key, data)
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"Feature route '{feature_key}' not found")
+        llm_router.invalidate_cache(feature_key)
+        return {"status": "success", "route": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update route {feature_key}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/llm/routes/{feature_key}/test")
+async def test_feature_route_endpoint(feature_key: str, req: TestFeatureRouteRequest, current_user: dict = Depends(get_current_user)):
+    """Send a test prompt through the feature route to verify end-to-end execution."""
+    import time
+    prompt = req.prompt or "Hello Rocky, are all neural cognitive systems operational? Respond in one sentence."
+    t0 = time.time()
+    try:
+        resp = await llm_router.execute_chat(
+            feature_key=feature_key,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+        )
+        latency_ms = int((time.time() - t0) * 1000)
+        return {
+            "success": True,
+            "feature_key": feature_key,
+            "provider": resp.provider,
+            "model": resp.model,
+            "response": resp.content,
+            "latency_ms": latency_ms,
+        }
+    except Exception as e:
+        latency_ms = int((time.time() - t0) * 1000)
+        logger.error(f"Test feature route {feature_key} failed: {e}")
+        return {
+            "success": False,
+            "feature_key": feature_key,
+            "error": str(e),
+            "latency_ms": latency_ms,
+        }
+
+@app.get("/api/llm/routing/voice_agent")
+async def get_voice_agent_routing():
+    """
+    Called by LiveKit voice agent to fetch dynamic LLM configuration.
+    Internal endpoint accessible within Docker network.
+    """
+    route = await llm_router.get_route("voice_agent", force_refresh=True)
+    if not route:
+        return {
+            "provider_name": "Emergency Ollama",
+            "provider_type": "ollama",
+            "base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
+            "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+            "api_key": None,
+            "temperature": 0.7,
+            "timeout_seconds": 30,
+            "fallback": None
+        }
+
+    fallback_data = None
+    if route.get("fallback_provider_id") and route.get("fallback_base_url"):
+        fallback_data = {
+            "provider_name": route.get("fallback_provider_name"),
+            "provider_type": route.get("fallback_provider_type"),
+            "base_url": route.get("fallback_base_url"),
+            "model": route.get("fallback_model"),
+            "api_key": route.get("fallback_api_key"),
+            "temperature": float(route.get("temperature_override") or 0.7),
+            "timeout_seconds": route.get("fallback_timeout_seconds", 30),
+        }
+
+    return {
+        "provider_name": route.get("primary_provider_name"),
+        "provider_type": route.get("primary_provider_type"),
+        "base_url": route.get("primary_base_url"),
+        "model": route.get("primary_model"),
+        "api_key": route.get("primary_api_key"),
+        "temperature": float(route.get("temperature_override") or 0.7),
+        "timeout_seconds": route.get("primary_timeout_seconds", 30),
+        "fallback": fallback_data
+    }
+
+
 
 
 def parse_reminder_request(text: str):
@@ -1587,44 +1827,33 @@ async def chat_endpoint(request: ChatRequest, current_user: dict = Depends(get_c
     messages = [{"role": msg["role"], "content": msg["content"]} for msg in past_history]
     messages.append({"role": "user", "content": request.message})
 
-    payload = {
-        "model": settings.ollama_model,
-        "messages": messages,
-        "stream": True,
-    }
-
     async def generate():
         full_response = []
-        async with httpx.AsyncClient() as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{settings.validated_ollama_base_url}/api/chat",
-                    json=payload,
-                    timeout=httpx.Timeout(60.0),
-                ) as response:
-                    if response.status_code != 200:
-                        yield f"data: {json.dumps({'error': f'Ollama error: {response.status_code}'})}\n\n"
-                        return
-
-                    async for line in response.aiter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                if "message" in data and "content" in data["message"]:
-                                    content = data["message"]["content"]
-                                    full_response.append(content)
-                                    yield f"event: token\ndata: {json.dumps({'content': content})}\n\n"
-                                if data.get("done", False):
-                                    # Save completed assistant response to user's isolated memory
-                                    if full_response:
-                                        await save_conversation_turn(current_user["id"], "assistant", "".join(full_response))
-                                    yield "event: done\ndata: {}\n\n"
-                            except json.JSONDecodeError:
-                                logger.error(f"Failed to decode Ollama response line: {line}")
-            except httpx.RequestError as e:
-                logger.error(f"Error communicating with Ollama: {e}")
-                yield f"data: {json.dumps({'error': 'Failed to communicate with LLM'})}\n\n"
+        try:
+            stream_iter = await llm_router.execute_chat(
+                feature_key="chat_text",
+                messages=messages,
+                stream=True,
+            )
+            async for chunk in stream_iter:
+                if chunk.error:
+                    logger.error(f"Chat stream chunk error: {chunk.error}")
+                    yield f"data: {json.dumps({'error': chunk.error})}\n\n"
+                    break
+                if chunk.content:
+                    full_response.append(chunk.content)
+                    yield f"event: token\ndata: {json.dumps({'content': chunk.content})}\n\n"
+                if chunk.is_done:
+                    if full_response:
+                        await save_conversation_turn(current_user["id"], "assistant", "".join(full_response))
+                    yield "event: done\ndata: {}\n\n"
+                    return
+            if full_response:
+                await save_conversation_turn(current_user["id"], "assistant", "".join(full_response))
+            yield "event: done\ndata: {}\n\n"
+        except Exception as e:
+            logger.error(f"Error communicating with LLM Router: {e}")
+            yield f"data: {json.dumps({'error': f'Failed to communicate with LLM: {e}'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1632,7 +1861,7 @@ async def chat_endpoint(request: ChatRequest, current_user: dict = Depends(get_c
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     """
-    WebSocket endpoint for streaming chat responses.
+    WebSocket endpoint for streaming chat responses via Cognitive LLM Router.
     """
     await websocket.accept()
     logger.info("WebSocket connection established.")
@@ -1646,44 +1875,32 @@ async def websocket_chat(websocket: WebSocket):
                     continue
 
                 content = request.get("content", "")
-                
-                payload = {
-                    "model": settings.ollama_model,
-                    "messages": [{"role": "user", "content": content}],
-                    "stream": True,
-                }
-
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        f"{settings.validated_ollama_base_url}/api/chat",
-                        json=payload,
-                        timeout=httpx.Timeout(60.0),
-                    ) as response:
-                        if response.status_code == 200:
-                            async for line in response.aiter_lines():
-                                if line:
-                                    try:
-                                        chunk = json.loads(line)
-                                        if "message" in chunk and "content" in chunk["message"]:
-                                            await websocket.send_json({
-                                                "type": "token",
-                                                "content": chunk["message"]["content"]
-                                            })
-                                        if chunk.get("done", False):
-                                            await websocket.send_json({"type": "done"})
-                                    except json.JSONDecodeError:
-                                        pass
-                        else:
-                            await websocket.send_json({"type": "error", "content": f"Ollama error: {response.status_code}"})
+                try:
+                    stream_iter = await llm_router.execute_chat(
+                        feature_key="chat_text",
+                        messages=[{"role": "user", "content": content}],
+                        stream=True,
+                    )
+                    async for chunk in stream_iter:
+                        if chunk.error:
+                            await websocket.send_json({"type": "error", "content": chunk.error})
                             await websocket.send_json({"type": "done"})
+                            break
+                        if chunk.content:
+                            await websocket.send_json({
+                                "type": "token",
+                                "content": chunk.content
+                            })
+                        if chunk.is_done:
+                            await websocket.send_json({"type": "done"})
+                            break
+                except Exception as e:
+                    logger.error(f"WebSocket LLM Router error: {e}")
+                    await websocket.send_json({"type": "error", "content": f"LLM error: {e}"})
+                    await websocket.send_json({"type": "done"})
 
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "content": "Invalid JSON request"})
-            except httpx.RequestError as e:
-                logger.error(f"Error communicating with Ollama: {e}")
-                await websocket.send_json({"type": "error", "content": "Failed to communicate with LLM"})
-                await websocket.send_json({"type": "done"})
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected.")
@@ -1699,32 +1916,49 @@ async def websocket_chat(websocket: WebSocket):
 @app.get("/api/health")
 async def health_check():
     """
-    Health check endpoint verifying connectivity to dependent services.
+    Health check endpoint verifying connectivity to dependent services including LLM Router.
     """
     health_status = {
         "status": "healthy",
         "services": {
+            "llm_router": False,
             "ollama": False,
             "livekit": False
         }
     }
 
-    # Check Ollama
+    # Check LLM Router via active chat_text primary provider
+    try:
+        route = await llm_router.get_route("chat_text")
+        if route and route.get("primary_base_url"):
+            test_res = await llm_router.test_provider({
+                "name": route["primary_provider_name"],
+                "provider_type": route["primary_provider_type"],
+                "base_url": route["primary_base_url"],
+                "api_key": route.get("primary_api_key"),
+                "default_model": route["primary_model"],
+                "timeout_seconds": 5,
+            })
+            health_status["services"]["llm_router"] = test_res.success
+    except Exception as e:
+        logger.warning(f"LLM Router health check warning: {e}")
+
+    # Check Ollama directly if configured
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=5.0)
+            response = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=3.0)
             if response.status_code == 200:
                 health_status["services"]["ollama"] = True
-        except Exception as e:
-            logger.warning(f"Ollama health check failed: {e}")
-            health_status["status"] = "degraded"
+        except Exception:
+            pass
 
     # Check LiveKit
     if settings.livekit_url and settings.livekit_api_key and settings.livekit_api_secret:
-        # A simple check is validating we have the configs. 
-        # Making an actual API call to LiveKit would be more robust.
         health_status["services"]["livekit"] = True
     else:
+        health_status["status"] = "degraded"
+
+    if not health_status["services"]["llm_router"] and not health_status["services"]["ollama"]:
         health_status["status"] = "degraded"
 
     return health_status

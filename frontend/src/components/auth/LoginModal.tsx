@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
-import { Lock, User, Key, AlertCircle, Server, Wifi, Globe, Settings2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
-import { DEFAULT_LAN_HOST, DEFAULT_TAILSCALE_HOST, getEffectiveServerHost } from '@/lib/constants';
+import { Lock, User, Key, AlertCircle, Server, Wifi, Globe, Cloud, Settings2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { DEFAULT_SERVER_HOST, DEFAULT_LAN_HOST, DEFAULT_TAILSCALE_HOST, getEffectiveServerHost, getApiUrl } from '@/lib/constants';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [serverHost, setServerHost] = useState(DEFAULT_LAN_HOST);
+  const [serverHost, setServerHost] = useState(DEFAULT_SERVER_HOST);
   const [isCheckingPing, setIsCheckingPing] = useState(false);
   const [pingStatus, setPingStatus] = useState<{ online: boolean; latency?: number } | null>(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
@@ -48,7 +48,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
     const start = performance.now();
     try {
       const cleanHost = host.replace(/:\d+$/, '').replace(/^https?:\/\//, '');
-      const port = host.includes(':') ? host.split(':')[1] : '8333';
+      const rawPort = host.includes(':') ? host.split(':')[1] : '';
+      const port = (rawPort && !['8333', '7880', '3001'].includes(rawPort)) 
+        ? rawPort 
+        : (typeof window !== 'undefined' ? window.location.port || '3000' : '3000');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2500);
 
@@ -102,7 +105,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
     } catch (err: any) {
       const msg = err.message || '';
       if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('load failed')) {
-        setError(`Cannot reach Rocky server at http://${serverHost}:8333. Tap "LAN Wi-Fi (${DEFAULT_LAN_HOST})" below if connected to local Wi-Fi, or switch to Tailscale.`);
+        setError(`Cannot reach Rocky server at ${getApiUrl()}. Tap a Server Uplink preset below (Cloud Default, Tailscale, or Wi-Fi LAN) to switch endpoints.`);
       } else {
         setError(msg || 'Authentication failed. Please check credentials.');
       }
@@ -113,12 +116,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020813]/85 backdrop-blur-md p-4 overflow-y-auto">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020813]/85 backdrop-blur-md p-3 sm:p-4 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="relative w-full max-w-md bg-[#020813]/95 border border-cyan-500/50 rounded-xl p-6 sm:p-8 shadow-[0_0_35px_rgba(0,240,255,0.25)] font-mono my-8"
+          className="relative w-full max-w-md max-h-[92vh] overflow-y-auto bg-[#020813]/95 border border-cyan-500/50 rounded-xl p-5 sm:p-8 shadow-[0_0_35px_rgba(0,240,255,0.25)] font-mono my-auto scrollbar-thin scrollbar-thumb-cyan-700/50"
         >
           {/* Sci-Fi HUD Corner Brackets */}
           <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400" />
@@ -127,16 +130,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
           <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-cyan-400" />
 
           {/* Title Header */}
-          <div className="flex flex-col items-center mb-5">
-            <div className="w-12 h-12 rounded-full border border-cyan-500/50 flex items-center justify-center bg-cyan-950/30 mb-2 shadow-[0_0_15px_rgba(0,240,255,0.4)]">
-              <Lock className="text-cyan-400" size={22} />
+          <div className="flex flex-col items-center mb-4 sm:mb-5">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full border border-cyan-500/50 flex items-center justify-center bg-cyan-950/30 mb-2 shadow-[0_0_15px_rgba(0,240,255,0.4)]">
+              <Lock className="text-cyan-400" size={20} />
             </div>
-            <h2 className="text-lg sm:text-xl font-orbitron tracking-widest text-cyan-300 uppercase text-center">System Authentication</h2>
-            <p className="text-[11px] text-cyan-600 mt-1 uppercase tracking-wider text-center">Credentials & Neural Uplink Required</p>
+            <h2 className="text-base sm:text-xl font-orbitron tracking-widest text-cyan-300 uppercase text-center">System Authentication</h2>
+            <p className="text-[10px] sm:text-[11px] text-cyan-600 mt-0.5 sm:mt-1 uppercase tracking-wider text-center">Credentials & Neural Uplink Required</p>
           </div>
 
           {/* SERVER UPLINK CONFIGURATION BAR */}
-          <div className="mb-5 p-3 rounded-lg bg-cyan-950/20 border border-cyan-900/60 text-xs">
+          <div className="mb-4 sm:mb-5 p-2.5 sm:p-3 rounded-lg bg-cyan-950/20 border border-cyan-900/60 text-xs">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] text-cyan-400 uppercase font-orbitron tracking-wider flex items-center gap-1.5">
                 <Server size={12} className="text-cyan-400" /> Server Uplink
@@ -167,36 +170,54 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
             </div>
 
             <div className="text-[11px] text-cyan-300 truncate font-mono mb-2.5 bg-black/40 px-2 py-1 rounded border border-cyan-900/40 flex items-center justify-between">
-              <span className="truncate">http://{serverHost}:8333</span>
+              <span className="truncate">{getApiUrl()}</span>
               <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shrink-0 ml-1">
                 Active
               </span>
             </div>
 
             {/* Quick Preset Buttons */}
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
               <button
                 type="button"
-                onClick={() => handleSelectHost(DEFAULT_LAN_HOST)}
-                className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded text-[10px] font-orbitron transition-all border ${
-                  serverHost === DEFAULT_LAN_HOST
-                    ? 'border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                onClick={() => handleSelectHost(DEFAULT_SERVER_HOST)}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2 rounded text-[9px] sm:text-[10px] font-orbitron transition-all border ${
+                  serverHost === DEFAULT_SERVER_HOST
+                    ? 'border-cyan-400 bg-cyan-500/25 text-cyan-100 shadow-[0_0_8px_rgba(0,240,255,0.4)] font-bold'
                     : 'border-cyan-900/60 bg-black/30 text-cyan-500 hover:border-cyan-700 hover:text-cyan-300'
                 }`}
+                title={DEFAULT_SERVER_HOST}
               >
-                <Wifi size={11} /> Wi-Fi LAN
+                <Cloud size={10} className="shrink-0" />
+                <span className="truncate">Cloud Default</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleSelectHost(DEFAULT_TAILSCALE_HOST)}
-                className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded text-[10px] font-orbitron transition-all border ${
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2 rounded text-[9px] sm:text-[10px] font-orbitron transition-all border ${
                   serverHost === DEFAULT_TAILSCALE_HOST
-                    ? 'border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                    ? 'border-cyan-400 bg-cyan-500/25 text-cyan-100 shadow-[0_0_8px_rgba(0,240,255,0.4)] font-bold'
                     : 'border-cyan-900/60 bg-black/30 text-cyan-500 hover:border-cyan-700 hover:text-cyan-300'
                 }`}
+                title={DEFAULT_TAILSCALE_HOST}
               >
-                <Globe size={11} /> Tailscale
+                <Globe size={10} className="shrink-0" />
+                <span className="truncate">Tailscale</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectHost(DEFAULT_LAN_HOST)}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2 rounded text-[9px] sm:text-[10px] font-orbitron transition-all border ${
+                  serverHost === DEFAULT_LAN_HOST
+                    ? 'border-cyan-400 bg-cyan-500/25 text-cyan-100 shadow-[0_0_8px_rgba(0,240,255,0.4)] font-bold'
+                    : 'border-cyan-900/60 bg-black/30 text-cyan-500 hover:border-cyan-700 hover:text-cyan-300'
+                }`}
+                title={DEFAULT_LAN_HOST}
+              >
+                <Wifi size={10} className="shrink-0" />
+                <span className="truncate">Wi-Fi LAN</span>
               </button>
             </div>
 

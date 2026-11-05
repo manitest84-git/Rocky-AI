@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { X, Server, Wifi, Globe, Check, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
-import { DEFAULT_TAILSCALE_HOST, DEFAULT_LAN_HOST, getEffectiveServerHost, getApiUrl } from '@/lib/constants';
+import { X, Server, Wifi, Globe, Cloud, Check, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import { DEFAULT_SERVER_HOST, DEFAULT_TAILSCALE_HOST, DEFAULT_LAN_HOST, getEffectiveServerHost, getApiUrl } from '@/lib/constants';
 
 interface ServerConfigModalProps {
   isOpen: boolean;
@@ -36,7 +36,10 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
 
     try {
       const cleanHost = target.replace(/:\d+$/, '').replace(/^https?:\/\//, '');
-      const port = target.includes(':') ? target.split(':')[1] : '8333';
+      const rawPort = target.includes(':') ? target.split(':')[1] : '';
+      const port = (rawPort && !['8333', '7880', '3001'].includes(rawPort)) 
+        ? rawPort 
+        : (typeof window !== 'undefined' ? window.location.port || '3000' : '3000');
       const testUrl = `http://${cleanHost}:${port}/api/health`;
 
       const controller = new AbortController();
@@ -83,17 +86,17 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
 
   const handleResetDefault = () => {
     localStorage.removeItem('rocky_server_host');
-    setHostInput(DEFAULT_LAN_HOST);
+    setHostInput(DEFAULT_SERVER_HOST);
     setTestResult({ status: 'idle', message: '' });
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/80 backdrop-blur-md" onClick={onClose} />
 
       {/* Modal Card */}
-      <div className="relative z-10 w-full max-w-md rounded-2xl bg-[#030d1d] border border-cyan-500/50 p-6 shadow-[0_0_50px_rgba(0,240,255,0.25)] space-y-5 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative z-10 w-full max-w-md max-h-[92vh] overflow-y-auto rounded-2xl bg-[#030d1d] border border-cyan-500/50 p-5 sm:p-6 shadow-[0_0_50px_rgba(0,240,255,0.25)] space-y-4 sm:space-y-5 animate-in fade-in zoom-in-95 duration-200 scrollbar-thin scrollbar-thumb-cyan-700/50">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-cyan-900/60 pb-3">
@@ -119,20 +122,35 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
           <label className="text-[10px] font-orbitron uppercase text-cyan-400 tracking-wider">
             Quick Uplink Presets
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setHostInput(DEFAULT_SERVER_HOST);
+                handleTestConnection(DEFAULT_SERVER_HOST);
+              }}
+              className="p-2 sm:p-2.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/80 hover:border-cyan-400/80 text-left transition-all group"
+            >
+              <div className="flex items-center gap-1.5 text-cyan-300 font-orbitron text-[11px] font-bold group-hover:text-cyan-100">
+                <Cloud size={13} className="text-cyan-400 shrink-0" />
+                <span className="truncate">Cloud Default</span>
+              </div>
+              <div className="text-[10px] text-cyan-500 font-mono mt-0.5 truncate">{DEFAULT_SERVER_HOST}</div>
+            </button>
+
             <button
               type="button"
               onClick={() => {
                 setHostInput(DEFAULT_TAILSCALE_HOST);
                 handleTestConnection(DEFAULT_TAILSCALE_HOST);
               }}
-              className="p-2.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/80 hover:border-cyan-400/80 text-left transition-all group"
+              className="p-2 sm:p-2.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/80 hover:border-cyan-400/80 text-left transition-all group"
             >
               <div className="flex items-center gap-1.5 text-cyan-300 font-orbitron text-[11px] font-bold group-hover:text-cyan-100">
-                <Globe size={13} className="text-purple-400" />
-                <span>Tailscale Mesh</span>
+                <Globe size={13} className="text-purple-400 shrink-0" />
+                <span className="truncate">Tailscale</span>
               </div>
-              <div className="text-[10px] text-cyan-500 font-mono mt-0.5">{DEFAULT_TAILSCALE_HOST}</div>
+              <div className="text-[10px] text-cyan-500 font-mono mt-0.5 truncate">{DEFAULT_TAILSCALE_HOST}</div>
             </button>
 
             <button
@@ -141,13 +159,13 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
                 setHostInput(DEFAULT_LAN_HOST);
                 handleTestConnection(DEFAULT_LAN_HOST);
               }}
-              className="p-2.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/80 hover:border-cyan-400/80 text-left transition-all group"
+              className="p-2 sm:p-2.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/80 hover:border-cyan-400/80 text-left transition-all group"
             >
               <div className="flex items-center gap-1.5 text-cyan-300 font-orbitron text-[11px] font-bold group-hover:text-cyan-100">
-                <Wifi size={13} className="text-cyan-400" />
-                <span>Local Wi-Fi LAN</span>
+                <Wifi size={13} className="text-cyan-400 shrink-0" />
+                <span className="truncate">Wi-Fi LAN</span>
               </div>
-              <div className="text-[10px] text-cyan-500 font-mono mt-0.5">{DEFAULT_LAN_HOST}</div>
+              <div className="text-[10px] text-cyan-500 font-mono mt-0.5 truncate">{DEFAULT_LAN_HOST}</div>
             </button>
           </div>
         </div>
@@ -156,7 +174,7 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
         <div className="space-y-1.5">
           <label className="text-[10px] font-orbitron uppercase text-cyan-400 tracking-wider flex items-center justify-between">
             <span>Target Host IP / Domain</span>
-            <span className="text-[9px] text-cyan-600 font-mono">Ports: 8333 (API) | 7880 (RTC)</span>
+            <span className="text-[9px] text-cyan-600 font-mono">Unified Gateway: Port 3000 (UI/API/RTC)</span>
           </label>
           <div className="flex items-center gap-2">
             <input

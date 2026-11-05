@@ -125,7 +125,7 @@ export async function getToken(roomName?: string, participantName?: string): Pro
     return data.token;
   } catch (err: any) {
     console.error(`getToken error connecting to ${url}:`, err);
-    throw new Error(err.message || `Failed to connect to backend at ${url}. Ensure port 8333 is open and accessible.`);
+    throw new Error(err.message || `Failed to connect to backend at ${url}. Ensure Rocky AI Gateway (port 3000) is open and accessible.`);
   }
 }
 
@@ -147,7 +147,17 @@ export async function streamChat(
     });
 
     if (!response.ok) {
-      onToken("Connection error: Unable to reach backend.");
+      if (response.status === 401) {
+        onToken("Session expired or unauthorized. Please log in again.");
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('jarvis_auth_token');
+          localStorage.removeItem('jarvis_user');
+          window.dispatchEvent(new Event('rocky-auth-expired'));
+        }
+      } else {
+        const errText = await response.text().catch(() => '');
+        onToken(`Backend error (${response.status}): ${errText || 'Unable to process request.'}`);
+      }
       onDone();
       return;
     }
@@ -180,6 +190,9 @@ export async function streamChat(
                 const parsed = JSON.parse(dataStr);
                 if (parsed.content) {
                   onToken(parsed.content);
+                }
+                if (parsed.error) {
+                  onToken(`\n${parsed.error}`);
                 }
                 if (parsed.ui_action && onAction) {
                   onAction(parsed.ui_action);
@@ -805,6 +818,249 @@ export async function transcribeAudioStt(audioBlob: Blob): Promise<{ transcript:
   });
   if (!response.ok) {
     throw new Error(`STT failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+// ==========================================
+// LLM Provider & Cognitive Routing API (Phases 3 & 6)
+// ==========================================
+
+export interface LlmProvider {
+  id: number;
+  name: string;
+  provider_type: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'openrouter' | 'custom_openai';
+  base_url: string;
+  default_model: string;
+  api_key?: string;
+  has_api_key?: boolean;
+  available_models?: string[];
+  temperature?: number;
+  max_tokens?: number;
+  timeout_seconds?: number;
+  is_active?: boolean;
+  is_system?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateLlmProviderPayload {
+  name: string;
+  provider_type: string;
+  base_url: string;
+  default_model: string;
+  api_key?: string;
+  available_models?: string[];
+  temperature?: number;
+  max_tokens?: number;
+  timeout_seconds?: number;
+  is_active?: boolean;
+}
+
+export interface UpdateLlmProviderPayload {
+  name?: string;
+  provider_type?: string;
+  base_url?: string;
+  default_model?: string;
+  api_key?: string;
+  available_models?: string[];
+  temperature?: number;
+  max_tokens?: number;
+  timeout_seconds?: number;
+  is_active?: boolean;
+}
+
+export interface ProviderTestPayload {
+  name?: string;
+  provider_type: string;
+  base_url: string;
+  api_key?: string;
+  default_model?: string;
+  timeout_seconds?: number;
+}
+
+export interface ProviderTestResponse {
+  success: boolean;
+  message: string;
+  latency_ms?: number;
+  models_found?: string[];
+}
+
+export interface LlmFeatureRoute {
+  id: number;
+  feature_key: string;
+  feature_name: string;
+  description: string;
+  primary_provider_id: number;
+  primary_model: string;
+  primary_provider_name?: string;
+  primary_provider_type?: string;
+  primary_base_url?: string;
+  fallback_provider_id?: number | null;
+  fallback_model?: string | null;
+  fallback_provider_name?: string | null;
+  fallback_provider_type?: string | null;
+  fallback_base_url?: string | null;
+  system_prompt_override?: string | null;
+  temperature_override?: number | null;
+  max_tokens_override?: number | null;
+  updated_at?: string;
+}
+
+export interface UpdateFeatureRoutePayload {
+  primary_provider_id: number;
+  primary_model: string;
+  fallback_provider_id?: number | null;
+  fallback_model?: string | null;
+  system_prompt_override?: string | null;
+  temperature_override?: number | null;
+  max_tokens_override?: number | null;
+}
+
+export interface FeatureRouteTestResponse {
+  success: boolean;
+  feature_key: string;
+  provider?: string;
+  model?: string;
+  response?: string;
+  error?: string;
+  latency_ms: number;
+}
+
+/**
+ * Fetch all configured LLM providers (keys masked)
+ */
+export async function getLlmProviders(): Promise<LlmProvider[]> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to fetch LLM providers');
+  const data = await response.json();
+  return data.providers || [];
+}
+
+/**
+ * Create a new LLM provider
+ */
+export async function createLlmProvider(payload: CreateLlmProviderPayload): Promise<LlmProvider> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to create provider' }));
+    throw new Error(err.detail || 'Failed to create provider');
+  }
+  const data = await response.json();
+  return data.provider;
+}
+
+/**
+ * Update an existing LLM provider
+ */
+export async function updateLlmProvider(providerId: number, payload: UpdateLlmProviderPayload): Promise<LlmProvider> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers/${providerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update provider' }));
+    throw new Error(err.detail || 'Failed to update provider');
+  }
+  const data = await response.json();
+  return data.provider;
+}
+
+/**
+ * Delete a custom LLM provider
+ */
+export async function deleteLlmProvider(providerId: number): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers/${providerId}`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to delete provider' }));
+    throw new Error(err.detail || 'Failed to delete provider');
+  }
+}
+
+/**
+ * Test connectivity, latency, and model availability of a provider configuration
+ */
+export async function testLlmProvider(payload: ProviderTestPayload): Promise<ProviderTestResponse> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Provider test connection failed' }));
+    return { success: false, message: err.detail || err.message || 'Connection failed' };
+  }
+  return response.json();
+}
+
+/**
+ * Fetch available models dynamically from provider endpoint
+ */
+export async function getLlmProviderModels(providerId: number): Promise<string[]> {
+  const response = await fetch(`${getApiUrl()}/api/llm/providers/${providerId}/models`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to fetch provider models');
+  const data = await response.json();
+  return data.models || [];
+}
+
+/**
+ * Fetch all cognitive feature routes
+ */
+export async function getLlmFeatureRoutes(): Promise<LlmFeatureRoute[]> {
+  const response = await fetch(`${getApiUrl()}/api/llm/routes`, {
+    headers: { ...getAuthHeader() }
+  });
+  if (!response.ok) throw new Error('Failed to fetch LLM feature routes');
+  const data = await response.json();
+  return data.routes || [];
+}
+
+/**
+ * Update mapping for a specific feature route
+ */
+export async function updateLlmFeatureRoute(featureKey: string, payload: UpdateFeatureRoutePayload): Promise<LlmFeatureRoute> {
+  const response = await fetch(`${getApiUrl()}/api/llm/routes/${featureKey}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update route' }));
+    throw new Error(err.detail || 'Failed to update route');
+  }
+  const data = await response.json();
+  return data.route;
+}
+
+/**
+ * Send test prompt through a feature route
+ */
+export async function testLlmFeatureRoute(featureKey: string, prompt?: string): Promise<FeatureRouteTestResponse> {
+  const response = await fetch(`${getApiUrl()}/api/llm/routes/${featureKey}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ prompt })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Route test execution failed' }));
+    return {
+      success: false,
+      feature_key: featureKey,
+      error: err.detail || 'Route test failed',
+      latency_ms: 0
+    };
   }
   return response.json();
 }

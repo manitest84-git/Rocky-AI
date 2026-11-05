@@ -27,8 +27,9 @@ The Android APK for **Rocky AI** has been successfully built and packaged with a
 2. **Unrestricted Network Communication**:
    - `android:usesCleartextTraffic="true"` configured to allow direct connections to host IP addresses over HTTP and WebSocket without SSL certificate blocks.
 
-3. **Dynamic Server Uplink Modal**:
+3. **Dynamic Server Uplink Modal (Single Port 3000)**:
    - In-app endpoint switcher accessible from the HUD navigation drawer.
+   - All external connections (API and LiveKit signaling) unify over **port 3000** through the gateway, requiring only port 3000 to be open on the server firewall.
    - Allows instant one-tap switching between:
      - **Tailscale IP**: `100.125.118.104` (works anywhere in the world when phone is on the same Tailnet)
      - **Local LAN IP**: `192.168.0.111` (works when connected to home Wi-Fi)

@@ -36,6 +36,7 @@ if [ -z "$OLLAMA_PORT" ]; then
 fi
 
 PORT="${BACKEND_PORT:-8333}"
+GATEWAY_PORT="${GATEWAY_PORT:-3000}"
 
 # Parse CLI options
 MODE="docker"
@@ -237,15 +238,17 @@ echo ""
 
 if [ "$HEALTHY" = true ]; then
     echo "✅ Rocky AI Backend API is UP and running!"
-    echo "📍 API URL:   http://localhost:${PORT}"
-    echo "📖 API Docs:  http://localhost:${PORT}/docs"
-    echo "🩺 Health:    http://localhost:${PORT}/api/health"
+    echo "🌐 Gateway URL:   http://localhost:${GATEWAY_PORT} (Single Port for UI/API/RTC)"
+    echo "📍 API (Direct):  http://127.0.0.1:${PORT}"
+    echo "📖 API Docs:      http://localhost:${GATEWAY_PORT}/docs"
+    echo "🩺 Health Check:  http://localhost:${GATEWAY_PORT}/api/health"
+    echo "🎙️  LiveKit RTC:   ws://localhost:${GATEWAY_PORT}/rtc"
     if [ "$MODE" = "local" ]; then
-        echo "📄 Logs:      tail -f backend/backend.log"
+        echo "📄 Logs:          tail -f backend/backend.log"
     else
-        echo "📄 Logs:      docker compose logs -f api"
+        echo "📄 Logs:          docker compose logs -f api"
     fi
-    echo "🛑 To stop:   ./stop.sh"
+    echo "🛑 To stop:       ./stop.sh"
     echo "=================================================="
 
     echo "📋 Active Docker Services:"

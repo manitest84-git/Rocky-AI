@@ -46,14 +46,15 @@ On-Premise Jarvis AI Voice Assistant powered by LiveKit and Ollama.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LIVEKIT_URL` | LiveKit Server WebSocket URL | `ws://localhost:7880` |
+| `GATEWAY_PORT` | Unified Reverse Proxy Gateway Port (Public) | `3000` |
+| `LIVEKIT_URL` | LiveKit Server Internal WebSocket URL | `ws://localhost:7880` |
 | `LIVEKIT_API_KEY` | LiveKit API Key | `devkey` |
 | `LIVEKIT_API_SECRET` | LiveKit API Secret | `secret` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Custom Ollama model to use | `jarvis` |
-| `NEXT_PUBLIC_LIVEKIT_URL` | LiveKit URL for frontend | `ws://localhost:7880` |
-| `NEXT_PUBLIC_API_URL` | Backend API URL for frontend | `http://localhost:8000` |
-| `BACKEND_PORT` | Port for the backend API | `8000` |
+| `NEXT_PUBLIC_LIVEKIT_URL` | LiveKit URL for clients (via Unified Gateway) | `ws://localhost:3000` |
+| `NEXT_PUBLIC_API_URL` | Backend API URL for clients (via Unified Gateway) | `http://localhost:3000` |
+| `BACKEND_PORT` | Internal port for the backend API | `8333` |
 
 ## Hardware Requirements
 
@@ -78,7 +79,7 @@ On-Premise Jarvis AI Voice Assistant powered by LiveKit and Ollama.
 
 - **Audio issues:** Ensure your browser has granted microphone permissions. If running on a remote server, you must use HTTPS for WebRTC to function properly in browsers.
 - **High latency:** Ensure Ollama is utilizing your GPU. Check `docker compose logs ollama` for startup messages regarding GPU detection.
-- **Port conflicts:** The default configuration uses ports `7880`, `7881`, `6379`, `11434`, `8000`, and `3000`. Adjust `.env` and `docker-compose.yml` if conflicts occur.
+- **Network & Ports:** Rocky AI standardizes all external client connections (Web UI, REST API, WebSockets, LiveKit signaling) through **only one port (port 3000)** via an Nginx reverse proxy gateway. All internal services (`8333`, `7880`, `7881`, `6379`, `5432`, `11434`) are secured and bound only to `127.0.0.1` and internal Docker networking. WebRTC media channels use UDP ports `50000-50050`.
 
 ## License
 MIT

@@ -192,6 +192,91 @@ def prewarm(proc: JobProcess):
     logger.info("Pre-warming completed.")
 
 
+async def fetch_voice_llm_config() -> dict:
+    """
+    Fetch dynamic LLM configuration for the voice agent from FastAPI backend.
+    Falls back to local Ollama if backend is unreachable.
+    """
+    backend_url = os.getenv("INTERNAL_API_URL", "http://api:8333")
+    url = f"{backend_url}/api/llm/routing/voice_agent"
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4.0)) as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"✅ Dynamic voice LLM config resolved: provider={data.get('provider_name')}, model={data.get('model')}")
+                    return data
+                else:
+                    logger.warning(f"Voice LLM route fetch returned HTTP {response.status}, using default Ollama")
+    except Exception as e:
+        logger.warning(f"Failed to query backend voice LLM route ({e}), falling back to local Ollama")
+
+    return {
+        "provider_name": "Local Ollama Default",
+        "provider_type": "ollama",
+        "base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
+        "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+        "api_key": None,
+        "temperature": 0.7,
+        "timeout_seconds": 30,
+        "fallback": None
+    }
+
+
+def build_livekit_llm_instance(config: dict):
+    """
+    Instantiate livekit.plugins.openai.LLM dynamically based on provider type.
+    Supports Ollama, OpenAI, Groq, Anthropic, Gemini, OpenRouter, and custom endpoints.
+    """
+    p_type = config.get("provider_type", "ollama").lower()
+    base_url = config.get("base_url") or "http://ollama:11434"
+    model = config.get("model") or os.getenv("OLLAMA_MODEL", "qwen3.5b")
+    api_key = config.get("api_key")
+    temp = float(config.get("temperature", 0.7))
+
+    logger.info(f"Initializing voice LLM: provider_type={p_type}, model={model}, base_url={base_url}")
+
+    if p_type == "ollama":
+        normalized_url = base_url.rstrip("/")
+        if not normalized_url.endswith("/v1"):
+            normalized_url = f"{normalized_url}/v1"
+        return openai.LLM.with_ollama(
+            model=model,
+            base_url=normalized_url,
+            temperature=temp,
+        )
+    elif p_type in ["openai", "groq", "openrouter", "custom_openai", "gemini"]:
+        return openai.LLM(
+            model=model,
+            base_url=base_url.rstrip("/"),
+            api_key=api_key or "no-key-required",
+            temperature=temp,
+        )
+    elif p_type == "anthropic":
+        try:
+            from livekit.plugins import anthropic as lk_anthropic
+            return lk_anthropic.LLM(
+                model=model,
+                api_key=api_key,
+                temperature=temp,
+            )
+        except Exception as e:
+            logger.warning(f"livekit.plugins.anthropic unavailable ({e}), trying standard OpenAI gateway adapter")
+            return openai.LLM(
+                model=model,
+                base_url=base_url.rstrip("/"),
+                api_key=api_key or "no-key-required",
+                temperature=temp,
+            )
+    else:
+        return openai.LLM(
+            model=model,
+            base_url=base_url.rstrip("/"),
+            api_key=api_key or "no-key-required",
+            temperature=temp,
+        )
+
+
 
 async def entrypoint(ctx: JobContext):
     """
@@ -210,15 +295,30 @@ async def entrypoint(ctx: JobContext):
             logger.error(f"Failed to load Silero VAD: {e}")
             return
 
-    # Ollama LLM
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    model_name = os.getenv("OLLAMA_MODEL", "qwen3.5b")
-    logger.info(f"Connecting to Ollama LLM endpoint: {ollama_url}/v1 (model: {model_name})")
-    llm_instance = openai.LLM.with_ollama(
-        model=model_name,
-        base_url=f"{ollama_url}/v1",
-        temperature=0.7,
-    )
+    # Dynamic LLM Provider Resolution & Instantiation
+    voice_llm_cfg = await fetch_voice_llm_config()
+    try:
+        llm_instance = build_livekit_llm_instance(voice_llm_cfg)
+    except Exception as e_llm:
+        logger.error(f"Failed to instantiate primary voice LLM: {e_llm}. Attempting fallback...")
+        fallback_cfg = voice_llm_cfg.get("fallback")
+        if fallback_cfg:
+            try:
+                llm_instance = build_livekit_llm_instance(fallback_cfg)
+            except Exception as e_fb:
+                logger.error(f"Fallback voice LLM also failed: {e_fb}. Engaging emergency Ollama failsafe.")
+                llm_instance = openai.LLM.with_ollama(
+                    model=os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+                    base_url=f"{os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434').rstrip('/')}/v1",
+                    temperature=0.7,
+                )
+        else:
+            logger.info("Engaging emergency Ollama failsafe for voice agent.")
+            llm_instance = openai.LLM.with_ollama(
+                model=os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+                base_url=f"{os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434').rstrip('/')}/v1",
+                temperature=0.7,
+            )
 
     # Local Whisper STT (Multilingual Base)
     whisper_stt = ctx.proc.userdata.get("stt")

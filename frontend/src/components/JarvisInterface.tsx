@@ -8,7 +8,6 @@ import { CircularVisualizer } from './hud/CircularVisualizer';
 import { HologramCard } from './hud/HologramCard';
 
 // Voice components
-import { DecryptText } from './voice/DecryptText';
 import { StatusIndicator } from './voice/StatusIndicator';
 import { VoiceControls } from './voice/VoiceControls';
 import { ChatPanel } from './voice/ChatPanel';
@@ -60,6 +59,7 @@ import { MemoryMapDrawer } from './hud/MemoryMapDrawer';
 import { UserProfileDrawer } from './hud/UserProfileDrawer';
 import { StudyMatrixDrawer } from './hud/StudyMatrixDrawer';
 import { LiveIntegrationsDrawer } from './hud/LiveIntegrationsDrawer';
+import { LlmRoutingDrawer } from './hud/LlmRoutingDrawer';
 import { ServerConfigModal } from './nav/ServerConfigModal';
 import { User, LogOut, Settings, Maximize2, Minimize2, MessageSquare, Radio, Layers, Sliders } from 'lucide-react';
 
@@ -298,6 +298,7 @@ export const JarvisInterface = () => {
   const [isStudyMatrixOpen, setIsStudyMatrixOpen] = useState<boolean>(false);
   const [isIntegrationsOpen, setIsIntegrationsOpen] = useState<boolean>(false);
   const [isServerConfigOpen, setIsServerConfigOpen] = useState<boolean>(false);
+  const [isLlmRoutingOpen, setIsLlmRoutingOpen] = useState<boolean>(false);
 
   // Full-Duplex Interruption & Barge-in handler
   const handleVoiceControl = useCallback((ctrl: any) => {
@@ -711,9 +712,14 @@ export const JarvisInterface = () => {
         onOpenStudyMatrix={() => setIsStudyMatrixOpen(true)}
         onOpenIntegrations={() => setIsIntegrationsOpen(true)}
         onOpenServerConfig={() => setIsServerConfigOpen(true)}
+        onOpenLlmRouting={() => setIsLlmRoutingOpen(true)}
       />
 
       {/* Drawers */}
+      <LlmRoutingDrawer
+        isOpen={isLlmRoutingOpen}
+        onClose={() => setIsLlmRoutingOpen(false)}
+      />
       <TaskManagerDrawer 
         isOpen={isTaskManagerOpen} 
         onClose={() => setIsTaskManagerOpen(false)} 
@@ -774,7 +780,7 @@ export const JarvisInterface = () => {
       </div>
 
       {/* Top Controls Bar: Mobile Tab Switcher & Fullscreen Button */}
-      <div className="absolute top-3 right-3 sm:top-6 sm:right-6 z-30 flex items-center gap-2 sm:gap-3">
+      <div className="absolute top-[max(0.75rem,env(safe-area-inset-top,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] z-30 flex items-center gap-2 sm:gap-3">
         {/* Mobile View Toggle Switch (Visible on small screens < md) */}
         <div className="flex md:hidden bg-[#020813]/80 border border-cyan-500/40 rounded-lg p-0.5 backdrop-blur-md shadow-[0_0_15px_rgba(0,240,255,0.15)]">
           <button
@@ -931,27 +937,15 @@ export const JarvisInterface = () => {
         mobileTab === 'comms' ? 'hidden md:flex' : 'flex'
       } flex-col items-center z-20 pointer-events-none absolute bottom-2 sm:bottom-4 left-0 right-0 px-3 sm:px-4 md:left-8 md:right-auto md:bottom-8 md:px-0 md:items-start`}>
         <div className="pointer-events-auto flex flex-col items-center gap-1.5 sm:gap-2 w-full max-w-sm sm:max-w-md">
-          {/* Subtitles & Dynamic Greeting Bar (Positioned safely above controls) */}
+          {/* Subtitles & Dynamic Greeting Bar (Plain text without animation) */}
           <div className="w-full text-center bg-[#020813]/90 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-xl border border-cyan-900/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)]">
-            {isConnecting ? (
-              <DecryptText 
-                text="Establishing secure neural uplink (Continuous Mode)..." 
-                speed={25} 
-                className="text-xs sm:text-sm font-orbitron text-cyan-400"
-              />
-            ) : !isConnected ? (
-              <DecryptText 
-                text={currentSubtitle || "R.O.C.K.Y. Standby. Click INITIALIZE to start continuous conversation."} 
-                speed={30} 
-                className="text-xs sm:text-sm font-orbitron text-cyan-400"
-              />
-            ) : (
-              <DecryptText 
-                text={currentSubtitle || getDynamicGreeting(user?.username)} 
-                speed={25} 
-                className="text-xs sm:text-sm font-orbitron text-cyan-300"
-              />
-            )}
+            <p className="text-xs sm:text-sm font-orbitron text-cyan-300 tracking-wide select-none">
+              {isConnecting
+                ? "Establishing secure neural uplink (Continuous Mode)..."
+                : !isConnected
+                ? (currentSubtitle || "R.O.C.K.Y. Standby. Click INITIALIZE to start continuous conversation.")
+                : (currentSubtitle || getDynamicGreeting(user?.username))}
+            </p>
           </div>
 
           {/* Voice Controls Dock */}

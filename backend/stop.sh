@@ -136,7 +136,7 @@ if [ -n "$COMPOSE_CMD" ] && docker info >/dev/null 2>&1; then
         fi
     else
         # Default: stop all stack containers properly
-        echo "⏹️  Stopping all Docker Compose services (api, agent, postgres, redis, ollama, livekit)..."
+        echo "⏹️  Stopping all Docker Compose services (gateway, api, agent, postgres, redis, ollama, livekit)..."
         $COMPOSE_CMD stop
         STOPPED_ANY=true
 
