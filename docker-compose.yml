@@ -17,7 +17,8 @@ services:
     ports:
       - "127.0.0.1:7880:7880"
       - "7881:7881"
-      - "50000-50050:50000-50050/udp"
+      - "7882:7882/udp"
+      - "3478:3478/udp"
     environment:
       - NODE_IP=${LIVEKIT_NODE_IP:-72.61.112.71}
     volumes:

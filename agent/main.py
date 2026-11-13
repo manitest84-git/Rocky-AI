@@ -168,26 +168,20 @@ def prewarm(proc: JobProcess):
         logger.warning(f"VAD prewarm notice: {e}")
 
     try:
-        model_name = os.getenv("WHISPER_MODEL", "base")
+        model_name = os.getenv("WHISPER_MODEL", "tiny.en")
         proc.userdata["stt"] = FasterWhisperSTT(model_size=model_name)
     except Exception as e:
         logger.warning(f"Whisper STT prewarm notice: {e}")
 
     try:
-        from jarvis_tts import KokoroTTS
-        tts = KokoroTTS(voice='bm_george', speed=1.0)
-        tts._ensure_pipeline()
-        proc.userdata["tts"] = tts
-        logger.info("British J.A.R.V.I.S. Kokoro-TTS (bm_george) pre-warmed.")
+        from jarvis_tts import PiperTTS
+        piper_url = os.getenv("PIPER_TTS_URL", "http://100.125.118.104:5000")
+        piper_voice = os.getenv("PIPER_VOICE", "en_GB-alan-low")
+        tts_engine = PiperTTS(server_url=piper_url, voice=piper_voice)
+        proc.userdata["tts"] = tts_engine
+        logger.info(f"British J.A.R.V.I.S. Piper-TTS ({piper_voice}) initialized (Worker: {piper_url}).")
     except Exception as e:
-        logger.warning(f"Kokoro TTS prewarm notice: {e}")
-        try:
-            from jarvis_tts import EdgeTTS
-            tts = EdgeTTS(default_locale='en-GB')
-            proc.userdata["tts"] = tts
-            logger.info("Fallback Edge-TTS pre-warmed.")
-        except Exception as e2:
-            logger.warning(f"EdgeTTS prewarm notice: {e2}")
+        logger.warning(f"Piper TTS prewarm notice: {e}")
 
     logger.info("Pre-warming completed.")
 
@@ -215,7 +209,7 @@ async def fetch_voice_llm_config() -> dict:
         "provider_name": "Local Ollama Default",
         "provider_type": "ollama",
         "base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
-        "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+        "model": os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
         "api_key": None,
         "temperature": 0.7,
         "timeout_seconds": 30,
@@ -230,7 +224,7 @@ def build_livekit_llm_instance(config: dict):
     """
     p_type = config.get("provider_type", "ollama").lower()
     base_url = config.get("base_url") or "http://ollama:11434"
-    model = config.get("model") or os.getenv("OLLAMA_MODEL", "qwen3.5b")
+    model = config.get("model") or os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
     api_key = config.get("api_key")
     temp = float(config.get("temperature", 0.7))
 
@@ -308,41 +302,32 @@ async def entrypoint(ctx: JobContext):
             except Exception as e_fb:
                 logger.error(f"Fallback voice LLM also failed: {e_fb}. Engaging emergency Ollama failsafe.")
                 llm_instance = openai.LLM.with_ollama(
-                    model=os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+                    model=os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
                     base_url=f"{os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434').rstrip('/')}/v1",
                     temperature=0.7,
                 )
         else:
             logger.info("Engaging emergency Ollama failsafe for voice agent.")
             llm_instance = openai.LLM.with_ollama(
-                model=os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+                model=os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
                 base_url=f"{os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434').rstrip('/')}/v1",
                 temperature=0.7,
             )
 
-    # Local Whisper STT (Multilingual Base)
+    # Local Whisper STT (Default: tiny.en for sub-second on-premise inference)
     whisper_stt = ctx.proc.userdata.get("stt")
     if whisper_stt is None:
-        whisper_stt = FasterWhisperSTT(model_size=os.getenv("WHISPER_MODEL", "base"))
+        whisper_stt = FasterWhisperSTT(model_size=os.getenv("WHISPER_MODEL", "tiny.en"))
     stt_stream = stt.StreamAdapter(stt=whisper_stt, vad=vad)
 
-    # TTS Engine: British J.A.R.V.I.S. Kokoro (bm_george) with Indic EdgeTTS fallback
+    # 100% Offline Neural TTS: Piper TTS via Tailscale Worker (Fallback: Local Kokoro)
     tts_engine = ctx.proc.userdata.get("tts")
     if tts_engine is None:
-        eleven_key = os.getenv("ELEVENLABS_API_KEY")
-        if eleven_key:
-            from jarvis_tts import ElevenLabsTTS
-            tts_engine = ElevenLabsTTS(api_key=eleven_key)
-            logger.info("Using ultra-low-latency streaming ElevenLabs TTS engine.")
-        else:
-            try:
-                from jarvis_tts import KokoroTTS
-                tts_engine = KokoroTTS(voice='bm_george', speed=1.0)
-                logger.info("Using British J.A.R.V.I.S. Kokoro-TTS (bm_george).")
-            except Exception as e:
-                logger.warning(f"Falling back to EdgeTTS: {e}")
-                from jarvis_tts import EdgeTTS
-                tts_engine = EdgeTTS(default_locale='en-GB')
+        from jarvis_tts import PiperTTS
+        piper_url = os.getenv("PIPER_TTS_URL", "http://100.125.118.104:5000")
+        piper_voice = os.getenv("PIPER_VOICE", "en_GB-alan-low")
+        tts_engine = PiperTTS(server_url=piper_url, voice=piper_voice)
+        logger.info(f"Using British J.A.R.V.I.S. Piper-TTS ({piper_voice}, Worker: {piper_url}).")
 
     # Ultra-Low Latency Voice Loop Turn Detection:
     # min_delay=0.35s silence closes turn immediately for <600ms latency
@@ -451,6 +436,28 @@ async def entrypoint(ctx: JobContext):
         return f"Opening your shopping list now, sir.{item_summary}"
 
     # Initialize agent session
+    current_llm_cfg = dict(voice_llm_cfg)
+
+    async def _ensure_active_voice_llm():
+        nonlocal current_llm_cfg
+        try:
+            latest_cfg = await fetch_voice_llm_config()
+            if (
+                latest_cfg.get("base_url") != current_llm_cfg.get("base_url")
+                or latest_cfg.get("model") != current_llm_cfg.get("model")
+                or latest_cfg.get("provider_type") != current_llm_cfg.get("provider_type")
+            ):
+                logger.info(
+                    f"🔄 [DYNAMIC LLM HOT-SWAP] Voice LLM route changed to '{latest_cfg.get('provider_name')}' "
+                    f"({latest_cfg.get('model')} @ {latest_cfg.get('base_url')}). Updating active agent LLM..."
+                )
+                new_llm = build_livekit_llm_instance(latest_cfg)
+                session.llm = new_llm
+                current_llm_cfg = dict(latest_cfg)
+                logger.info("✅ [DYNAMIC LLM HOT-SWAP] LiveKit Agent LLM successfully updated to user selection.")
+        except Exception as e_swap:
+            logger.warning(f"Error during dynamic voice LLM route check: {e_swap}")
+
     session = AgentSession(
         stt=stt_stream,
         llm=llm_instance,
@@ -477,6 +484,7 @@ async def entrypoint(ctx: JobContext):
     @session.on("user_input_transcribed")
     def on_user_transcription(ev):
         if ev.is_final and ev.transcript.strip():
+            asyncio.create_task(_ensure_active_voice_llm())
             user_text = ev.transcript.strip()
             user_lower = user_text.lower().strip()
             clean_user_lower = re.sub(r"[^\w\s]", "", user_lower).strip()
@@ -593,6 +601,14 @@ MULTILINGUAL CAPABILITIES & ANTI-LOOP RULES:
         ),
     )
     logger.info("Rocky agent session started and listening continuously for speech.")
+
+    # Dynamic LLM Route Watcher: checks backend route every 5 seconds so user changes apply instantly without restarting the call
+    async def _poll_llm_route_changes():
+        while ctx.room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
+            await asyncio.sleep(5)
+            await _ensure_active_voice_llm()
+
+    asyncio.create_task(_poll_llm_route_changes())
 
     # Preload recent conversation memory from backend so Rocky maintains continuous context across HUD and Comms
     try:

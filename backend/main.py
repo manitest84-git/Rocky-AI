@@ -1495,6 +1495,13 @@ async def update_feature_route_endpoint(feature_key: str, req: UpdateFeatureRout
         if not updated:
             raise HTTPException(status_code=404, detail=f"Feature route '{feature_key}' not found")
         llm_router.invalidate_cache(feature_key)
+        llm_router.invalidate_cache()
+        if feature_key == "memory_extraction":
+            try:
+                from memory_agent import memory_agent
+                asyncio.create_task(memory_agent.reload_llm_config())
+            except Exception as e_mem:
+                logger.warning(f"Failed to reload memory_agent config: {e_mem}")
         return {"status": "success", "route": updated}
     except HTTPException:
         raise
@@ -1545,7 +1552,7 @@ async def get_voice_agent_routing():
             "provider_name": "Emergency Ollama",
             "provider_type": "ollama",
             "base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
-            "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
             "api_key": None,
             "temperature": 0.7,
             "timeout_seconds": 30,
@@ -1931,22 +1938,25 @@ async def health_check():
     try:
         route = await llm_router.get_route("chat_text")
         if route and route.get("primary_base_url"):
-            test_res = await llm_router.test_provider({
-                "name": route["primary_provider_name"],
-                "provider_type": route["primary_provider_type"],
-                "base_url": route["primary_base_url"],
-                "api_key": route.get("primary_api_key"),
-                "default_model": route["primary_model"],
-                "timeout_seconds": 5,
-            })
+            test_res = await asyncio.wait_for(
+                llm_router.test_provider({
+                    "name": route["primary_provider_name"],
+                    "provider_type": route["primary_provider_type"],
+                    "base_url": route["primary_base_url"],
+                    "api_key": route.get("primary_api_key"),
+                    "default_model": route["primary_model"],
+                    "timeout_seconds": 2,
+                }),
+                timeout=2.0
+            )
             health_status["services"]["llm_router"] = test_res.success
     except Exception as e:
         logger.warning(f"LLM Router health check warning: {e}")
 
-    # Check Ollama directly if configured
+    # Check Standby Local Ollama directly
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=3.0)
+            response = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=1.5)
             if response.status_code == 200:
                 health_status["services"]["ollama"] = True
         except Exception:

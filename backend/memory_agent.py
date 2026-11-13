@@ -20,7 +20,7 @@ class MemoryManager:
             default_llm = {
                 "provider": "ollama",
                 "config": {
-                    "model": os.getenv("OLLAMA_MODEL", "qwen3.5b"),
+                    "model": os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
                     "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
                 }
             }
@@ -51,7 +51,7 @@ class MemoryManager:
                 return
 
             p_type = route.get("primary_provider_type", "ollama")
-            model = route.get("primary_model") or os.getenv("OLLAMA_MODEL", "qwen3.5b")
+            model = route.get("primary_model") or os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
             base_url = route.get("primary_base_url", os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"))
             api_key = route.get("primary_api_key")
 
