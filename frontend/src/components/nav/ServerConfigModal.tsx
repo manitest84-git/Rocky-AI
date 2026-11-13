@@ -135,7 +135,7 @@ export const ServerConfigModal: React.FC<ServerConfigModalProps> = ({ isOpen, on
                 <Cloud size={13} className="text-cyan-400 shrink-0" />
                 <span className="truncate">Cloud Default</span>
               </div>
-              <div className="text-[10px] text-cyan-500 font-mono mt-0.5 truncate">{DEFAULT_SERVER_HOST}</div>
+              <div className="text-[10px] text-cyan-500 font-mono mt-0.5 truncate">http://{DEFAULT_SERVER_HOST}</div>
             </button>
 
             <button

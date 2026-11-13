@@ -186,7 +186,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onOpenServerConf
                     ? 'border-cyan-400 bg-cyan-500/25 text-cyan-100 shadow-[0_0_8px_rgba(0,240,255,0.4)] font-bold'
                     : 'border-cyan-900/60 bg-black/30 text-cyan-500 hover:border-cyan-700 hover:text-cyan-300'
                 }`}
-                title={DEFAULT_SERVER_HOST}
+                title={`http://${DEFAULT_SERVER_HOST}`}
               >
                 <Cloud size={10} className="shrink-0" />
                 <span className="truncate">Cloud Default</span>

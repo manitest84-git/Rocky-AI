@@ -22,6 +22,10 @@ export function useAmbientDictation({ onDictatedText, enabled = true }: UseAmbie
   const startDictation = useCallback(async () => {
     if (isRecording || isTranscribing) return;
     try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        console.warn("Microphone access not available in this context.");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,

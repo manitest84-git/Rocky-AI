@@ -30,6 +30,11 @@ export const getEffectiveServerHost = (): string => {
         host = host.replace(/:(8333|7880|3001)$/, ':3000');
         localStorage.setItem('rocky_server_host', host);
       }
+      // If saved with https:// for workflow.mmani.cloud or port 3000, sanitize to http://
+      if (host.startsWith('https://workflow.mmani.cloud') || (host.startsWith('https://') && host.includes(':3000'))) {
+        host = host.replace(/^https:\/\//, 'http://');
+        localStorage.setItem('rocky_server_host', host);
+      }
       return host;
     }
 
@@ -48,9 +53,12 @@ export const getEffectiveServerHost = (): string => {
 
 export const getApiUrl = (): string => {
   if (typeof window !== 'undefined') {
-    const targetHost = getEffectiveServerHost();
+    let targetHost = getEffectiveServerHost();
+    if (targetHost.startsWith('https://workflow.mmani.cloud') || (targetHost.startsWith('https://') && targetHost.includes(':3000'))) {
+      targetHost = targetHost.replace(/^https:\/\//, 'http://');
+    }
     if (targetHost.startsWith('http://') || targetHost.startsWith('https://')) {
-      return targetHost.replace(/:(8333|7880|3001)$/, ':3000');
+      return targetHost.replace(/:(8333|7880|3001)$/, ':3000').replace(/\/+$/, '');
     }
     const cleanHost = targetHost.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
     let port = '3000';
@@ -65,7 +73,10 @@ export const getApiUrl = (): string => {
       const currentPort = window.location.port;
       port = currentPort || '3000';
     }
-    const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    // In Android APK or localhost WebView, window.location.hostname is localhost.
+    // Port 3000 is HTTP, so only use https: if the user's browser is directly loaded on that same remote host over https:
+    const isLocalContext = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || !window.location.hostname;
+    const proto = (!isLocalContext && window.location.hostname === cleanHost && window.location.protocol === 'https:') ? 'https:' : 'http:';
     return `${proto}//${cleanHost}:${port}`;
   }
   return process.env.NEXT_PUBLIC_API_URL || `http://${DEFAULT_SERVER_HOST}`;
@@ -73,9 +84,12 @@ export const getApiUrl = (): string => {
 
 export const getLiveKitUrl = (): string => {
   if (typeof window !== 'undefined') {
-    const targetHost = getEffectiveServerHost();
+    let targetHost = getEffectiveServerHost();
+    if (targetHost.startsWith('wss://workflow.mmani.cloud') || (targetHost.startsWith('wss://') && targetHost.includes(':3000'))) {
+      targetHost = targetHost.replace(/^wss:\/\//, 'ws://');
+    }
     if (targetHost.startsWith('ws://') || targetHost.startsWith('wss://')) {
-      return targetHost.replace(/:(8333|7880|3001)$/, ':3000');
+      return targetHost.replace(/:(8333|7880|3001)$/, ':3000').replace(/\/+$/, '');
     }
     const cleanHost = targetHost.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/:\d+$/, '');
     let port = '3000';
@@ -90,7 +104,8 @@ export const getLiveKitUrl = (): string => {
       const currentPort = window.location.port;
       port = currentPort || '3000';
     }
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const isLocalContext = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || !window.location.hostname;
+    const wsProto = (!isLocalContext && window.location.hostname === cleanHost && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
     return `${wsProto}//${cleanHost}:${port}`;
   }
   return process.env.NEXT_PUBLIC_LIVEKIT_URL || `ws://${DEFAULT_SERVER_HOST}`;

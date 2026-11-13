@@ -31,20 +31,16 @@ if (typeof window !== 'undefined') {
 }
 
 const getSafeAudioConfig = () => {
-  if (typeof window !== 'undefined' && navigator.mediaDevices?.getSupportedConstraints) {
-    const supported = navigator.mediaDevices.getSupportedConstraints();
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+    const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
     return {
       echoCancellation: true,
       noiseSuppression: !!supported.noiseSuppression,
       autoGainControl: !!supported.autoGainControl,
     };
   }
-  return {
-    echoCancellation: true,
-  };
+  return false;
 };
-
-const LIVEKIT_AUDIO_CONFIG = getSafeAudioConfig();
 
 import { useAuth } from '@/context/AuthContext';
 import { LoginModal } from './auth/LoginModal';
@@ -267,6 +263,8 @@ export const JarvisInterface = () => {
   const [currentSubtitle, setCurrentSubtitle] = useState<string>('');
   const [financeInitialTab, setFinanceInitialTab] = useState<'expenses' | 'subscriptions' | 'shopping'>('expenses');
   const [panelRefreshCounter, setPanelRefreshCounter] = useState<number>(0);
+  const [audioConfig, setAudioConfig] = useState<any>(() => getSafeAudioConfig());
+  const [micNotice, setMicNotice] = useState<string | null>(null);
 
   // HitL Safeguard Staging & Modal State
   const [stagedHitLAction, setStagedHitLAction] = useState<HitLActionRecord | null>(null);
@@ -904,7 +902,7 @@ export const JarvisInterface = () => {
             serverUrl={serverUrl} 
             token={token} 
             connect={true} 
-            audio={LIVEKIT_AUDIO_CONFIG}
+            audio={audioConfig}
             onConnected={handleRoomConnected}
             onDisconnected={handleRoomDisconnected}
             onError={handleRoomError}
@@ -932,6 +930,21 @@ export const JarvisInterface = () => {
         )}
       </div>
 
+      {/* Microphone Insecure HTTP / Permission Notice */}
+      {micNotice && (
+        <div className="absolute top-14 sm:top-18 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[92%] text-center">
+          <div className="px-3.5 py-2 rounded-lg bg-amber-500/20 border border-amber-400 text-amber-200 font-orbitron text-xs tracking-wide backdrop-blur-md shadow-[0_0_20px_rgba(251,191,36,0.4)] flex items-center justify-between gap-2">
+            <span className="flex-1">{micNotice}</span>
+            <button
+              onClick={() => setMicNotice(null)}
+              className="text-amber-400 hover:text-amber-100 text-sm font-bold px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-all cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Unified Bottom HUD Dock: Subtitles + Voice Controls Cleanly Stacked Without Overlap */}
       <div className={`transition-all duration-300 ${
         mobileTab === 'comms' ? 'hidden md:flex' : 'flex'
@@ -952,13 +965,23 @@ export const JarvisInterface = () => {
           <VoiceControls 
             onConnect={async () => {
               setIsManualDisconnect(false);
-              try {
-                if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+              setMicNotice(null);
+              const safeConfig = getSafeAudioConfig();
+              setAudioConfig(safeConfig);
+              if (!safeConfig) {
+                if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                  setMicNotice("Notice: Mobile web browsers disable microphone input on unencrypted HTTP. Assistant audio playback will work; for full two-way voice chat, use the Android APK or connect over HTTPS.");
+                }
+              } else {
+                try {
                   const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                   tempStream.getTracks().forEach((track) => track.stop());
+                } catch (micErr: any) {
+                  console.warn("User microphone prompt notice:", micErr);
+                  if (micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError') {
+                    setMicNotice("Microphone permission denied in browser. Please allow microphone access.");
+                  }
                 }
-              } catch (micErr) {
-                console.warn("User microphone prompt notice:", micErr);
               }
               connect(undefined, user?.username);
             }}

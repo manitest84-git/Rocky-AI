@@ -3,6 +3,7 @@
   "appName": "Rocky AI",
   "webDir": "out",
   "server": {
+    "androidScheme": "http",
     "cleartext": true,
     "allowNavigation": ["*"]
   },
