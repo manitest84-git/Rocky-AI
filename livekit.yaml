@@ -2,8 +2,9 @@ port: 7880
 rtc:
   udp_port: 7882
   tcp_port: 7881
-  use_external_ip: true
-  advertise_internal_ip: false
+  # LiveKit runs on local machine — use Tailscale IP for ICE candidates
+  node_ip: "100.125.118.104"
+  use_external_ip: false
 turn:
   enabled: true
   domain: "workflow.mmani.cloud"
@@ -11,7 +12,7 @@ turn:
 keys:
   devkey: "secret"
 redis:
-  address: redis:6379
+  address: "127.0.0.1:6379"
 logging:
   level: info
 room:

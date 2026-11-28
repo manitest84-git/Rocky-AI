@@ -1,42 +1,6 @@
 name: rocky
 
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "127.0.0.1:6379:6379"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  livekit-server:
-    image: livekit/livekit-server:latest
-    ports:
-      - "127.0.0.1:7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
-      - "3478:3478/udp"
-    environment:
-      - NODE_IP=${LIVEKIT_NODE_IP:-72.61.112.71}
-    volumes:
-      - ./livekit.yaml:/livekit.yaml
-    command: --config /livekit.yaml --node-ip ${LIVEKIT_NODE_IP:-72.61.112.71}
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11435}:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    restart: unless-stopped
-
   postgres:
     image: pgvector/pgvector:pg16
     ports:
@@ -63,8 +27,9 @@ services:
     env_file:
       - .env
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - LIVEKIT_URL=ws://livekit-server:7880
+      # Ollama & LiveKit run on local machine via Tailscale
+      - OLLAMA_BASE_URL=http://100.125.118.104:11434
+      - LIVEKIT_URL=ws://100.125.118.104:7880
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -72,10 +37,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
-      livekit-server:
-        condition: service_started
     restart: unless-stopped
 
   agent:
@@ -87,11 +48,11 @@ services:
     volumes:
       - ./agent:/app
     environment:
-      - LIVEKIT_URL=ws://livekit-server:7880
-      - OLLAMA_BASE_URL=http://ollama:11434
+      # Ollama & LiveKit run on local machine via Tailscale
+      - LIVEKIT_URL=ws://100.125.118.104:7880
+      - OLLAMA_BASE_URL=http://100.125.118.104:11434
+      - PIPER_TTS_URL=http://100.125.118.104:5000
     depends_on:
-      - ollama
-      - livekit-server
       - postgres
     restart: unless-stopped
 
@@ -108,10 +69,7 @@ services:
     depends_on:
       api:
         condition: service_started
-      livekit-server:
-        condition: service_started
     restart: unless-stopped
 
 volumes:
-  ollama_models:
   postgres_data:

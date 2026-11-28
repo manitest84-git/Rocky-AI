@@ -27,9 +27,12 @@ class Settings(BaseSettings):
         Prevents redirection to external/cloud LLM APIs.
         """
         url = self.ollama_base_url.lower()
-        allowed_prefixes = ("http://localhost", "http://127.0.0.1", "http://ollama", "http://host.docker.internal")
+        allowed_prefixes = (
+            "http://localhost", "http://127.0.0.1", "http://ollama",
+            "http://host.docker.internal", "http://100.",  # Tailscale CGNAT range (100.x.x.x)
+        )
         if not any(url.startswith(prefix) for prefix in allowed_prefixes):
-            raise ValueError(f"GUARDRAIL SECURITY VIOLATION: OLLAMA_BASE_URL ({self.ollama_base_url}) must be a local URL.")
+            raise ValueError(f"GUARDRAIL SECURITY VIOLATION: OLLAMA_BASE_URL ({self.ollama_base_url}) must be a local/Tailscale URL.")
         return self.ollama_base_url
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
